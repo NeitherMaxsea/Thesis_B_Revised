@@ -1,0 +1,356 @@
+@extends('layout.app')
+
+@php
+    $accountType = old('account_type', 'pwd_applicant');
+    $dasmaAddresses = [
+        'Burol Main',
+        'Burol I',
+        'Burol II',
+        'Burol III',
+        'Datu Esmael (Bago-A-Ingud)',
+        'Emmanuel Bergado I',
+        'Emmanuel Bergado II',
+        'Fatima I',
+        'Fatima II',
+        'Fatima III',
+        'Barangay H-2 (Santa Veronica)',
+        'Langkaan I (Humayao)',
+        'Langkaan II',
+        'Luzviminda I',
+        'Luzviminda II',
+        'Paliparan I',
+        'Paliparan II',
+        'Paliparan III',
+        'Sabang',
+        'Salawag',
+        'Saint Peter I',
+        'Saint Peter II',
+        'Salitran I',
+        'Salitran II',
+        'Salitran III',
+        'Salitran IV',
+        'Sampaloc I (Pala-Pala)',
+        'Sampaloc II (Bucal/Malinta)',
+        'Sampaloc III (Piela)',
+        'Sampaloc IV (Talisayan/Bautista)',
+        'Sampaloc V (New Era)',
+        'San Agustin I',
+        'San Agustin II (R. Tirona)',
+        'San Agustin III',
+        'San Andres I',
+        'San Andres II',
+        'San Antonio De Padua I',
+        'San Antonio De Padua II',
+        'San Dionisio',
+        'San Esteban',
+        'San Francisco I',
+        'San Francisco II',
+        'San Isidro Labrador I',
+        'San Isidro Labrador II',
+        'San Jose',
+        'San Juan',
+        'San Lorenzo Ruiz I',
+        'San Lorenzo Ruiz II',
+        'San Luis I',
+        'San Luis II',
+        'San Manuel I',
+        'San Manuel II',
+        'San Mateo',
+        'San Miguel I',
+        'San Miguel II',
+        'San Nicolas I',
+        'San Nicolas II',
+        'San Roque',
+        'San Simon',
+        'Santa Cristina I',
+        'Santa Cristina II',
+        'Santa Cruz I',
+        'Santa Cruz II',
+        'Santa Fe',
+        'Santa Lucia',
+        'Santa Maria',
+        'Santo Cristo',
+        'Santo Nino I',
+        'Santo Nino II',
+        'Victoria Reyes',
+        'Zone I-B',
+        'Zone I',
+        'Zone II',
+        'Zone III',
+        'Zone IV',
+    ];
+
+    $disabilityTypes = [
+        'Cancer Survivors and Rare Disease Individuals',
+        'Chronic Kidney Disease / Dialysis Patient',
+        'Deaf and Hard of Hearing Individuals',
+        'Diabetes with Complications',
+        'Dwarfism',
+        'Epilepsy',
+        'Intellectual Disability',
+        'Learning Disability',
+        'Learning Disability (Dyslexic)',
+        'Lower Limb Amputation/Deformity and Wheelchair Users',
+        'Mental and Psychosocial Disability Individuals',
+        'Physical Disability',
+        'Severe Heart Disease',
+        'Speech Impairment',
+        'Upper Limb Amputation/Deformity',
+        'Visually Impaired',
+    ];
+@endphp
+
+@section('content')
+<section class="min-h-screen bg-[#f4f8f5] pt-20 lg:pt-24">
+    <div class="grid min-h-[calc(100vh-5rem)] lg:grid-cols-[0.9fr_1.1fr]">
+        <aside class="relative overflow-hidden bg-gradient-to-br from-[#041d16] via-[#0d5832] to-[#18a06b] px-6 py-10 text-white sm:px-10 lg:px-16 lg:py-16">
+            <div class="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/8 blur-sm"></div>
+            <div class="absolute -bottom-28 -left-28 h-72 w-72 rounded-full bg-white/8 blur-sm"></div>
+            <div class="absolute inset-0 bg-[radial-gradient(circle_at_18%_28%,rgba(255,255,255,.14),transparent_34%)]"></div>
+
+            <div class="relative z-10 max-w-[620px]">
+                <div>
+                    <p class="text-sm font-bold uppercase tracking-[0.32em] text-[#dcefd7]">Hireable Proximity</p>
+                    <h2 class="mt-4 max-w-[520px] text-4xl font-bold leading-[1.12] tracking-normal sm:text-5xl">
+                        Find Work Built Around Ability
+                    </h2>
+                    <p class="mt-5 max-w-[560px] text-sm leading-7 text-white/82">
+                        A focused space for PWD applicants and inclusive employers to meet, apply, and manage opportunities with confidence.
+                    </p>
+                </div>
+
+                <div class="mt-10 space-y-4 text-sm font-semibold text-white/90">
+                    <p class="flex items-center gap-3">
+                        <span class="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[#176c3a]">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.25 7.313a1 1 0 0 1-1.42.002L3.29 9.207a1 1 0 0 1 1.42-1.408l4.04 4.09 6.54-6.593a1 1 0 0 1 1.414-.006Z" clip-rule="evenodd" />
+                            </svg>
+                        </span>
+                        Guided applications for PWD applicants
+                    </p>
+                    <p class="flex items-center gap-3">
+                        <span class="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[#176c3a]">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.25 7.313a1 1 0 0 1-1.42.002L3.29 9.207a1 1 0 0 1 1.42-1.408l4.04 4.09 6.54-6.593a1 1 0 0 1 1.414-.006Z" clip-rule="evenodd" />
+                            </svg>
+                        </span>
+                        Inclusive job matching with partner employers
+                    </p>
+                    <p class="flex items-center gap-3">
+                        <span class="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[#176c3a]">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.25 7.313a1 1 0 0 1-1.42.002L3.29 9.207a1 1 0 0 1 1.42-1.408l4.04 4.09 6.54-6.593a1 1 0 0 1 1.414-.006Z" clip-rule="evenodd" />
+                            </svg>
+                        </span>
+                        Simple access for applicants and employers
+                    </p>
+                </div>
+            </div>
+        </aside>
+
+        <div class="flex items-center justify-center px-5 py-10 lg:px-10">
+            <div class="auth-card w-full max-w-[620px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_22px_65px_rgba(15,23,42,0.12)]">
+                <div class="grid grid-cols-2 border-b border-gray-100">
+                    <a href="{{ route('login') }}" class="auth-tab flex h-14 items-center justify-center text-sm font-semibold">
+                        Login
+                    </a>
+                    <a href="{{ route('register') }}" class="auth-tab is-active flex h-14 items-center justify-center text-sm font-semibold" aria-current="page">
+                        Create Account
+                    </a>
+                </div>
+
+                <div class="px-6 py-8 sm:px-8">
+                    <form class="auth-panel" action="{{ route('register.store') }}" method="POST" enctype="multipart/form-data" data-register-form>
+                        @csrf
+                        <h2 class="text-2xl font-bold text-slate-950">Create your account</h2>
+                        <p class="mt-2 text-sm text-slate-500" data-register-copy>Choose your account type, then complete the required setup.</p>
+
+                        @if ($errors->any())
+                            <div class="mt-5 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                                {{ $errors->first() }}
+                            </div>
+                        @endif
+
+                        <div class="auth-stepper mt-6" data-register-stepper>
+                            <button type="button" class="is-active" data-register-step-button="1">
+                                <span>1</span>
+                                Basic Info
+                            </button>
+                            <button type="button" data-register-step-button="2">
+                                <span>2</span>
+                                Verification
+                            </button>
+                            <button type="button" data-register-step-button="3">
+                                <span>3</span>
+                                Account Setup
+                            </button>
+                        </div>
+
+                        <div class="mt-6">
+                            <p class="text-sm font-semibold text-slate-900">Account Type</p>
+                            <input type="hidden" name="account_type" value="{{ $accountType }}" data-auth-role-input>
+
+                            <div class="mt-3 grid grid-cols-2 gap-3">
+                                <button type="button" class="auth-role-card {{ $accountType === 'pwd_applicant' ? 'is-active' : '' }}" data-auth-role="pwd_applicant" aria-pressed="{{ $accountType === 'pwd_applicant' ? 'true' : 'false' }}">
+                                    <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-[#e8f5ee] text-[#176c3a]">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.25a7.5 7.5 0 0 1 15 0" />
+                                        </svg>
+                                    </span>
+                                    <span class="mt-2 block text-sm font-bold text-slate-950">PWD Applicant</span>
+                                    <span class="mt-1 block text-[10px] font-semibold text-slate-500">Find inclusive work</span>
+                                </button>
+
+                                <button type="button" class="auth-role-card {{ $accountType === 'employer' ? 'is-active' : '' }}" data-auth-role="employer" aria-pressed="{{ $accountType === 'employer' ? 'true' : 'false' }}">
+                                    <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.75 20.25h14.5M7 20V6.75A1.75 1.75 0 0 1 8.75 5h6.5A1.75 1.75 0 0 1 17 6.75V20M9.25 8.5h1.5m2.5 0h1.5m-5.5 3h1.5m2.5 0h1.5m-5.5 3h1.5m2.5 0h1.5M10 20v-2.75h4V20" />
+                                        </svg>
+                                    </span>
+                                    <span class="mt-2 block text-sm font-bold text-slate-950">Employer</span>
+                                    <span class="mt-1 block text-[10px] font-semibold text-slate-500">Post inclusive jobs</span>
+                                </button>
+                            </div>
+
+                            <p class="mt-3 hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800" data-role-switch-notice>
+                                You already started the PWD applicant form. Clear those fields first before switching to Employer.
+                            </p>
+                        </div>
+
+                        <div class="mt-6" data-register-step="1">
+                            <div class="grid gap-4 sm:grid-cols-[1fr_1fr_8rem]">
+                                <div>
+                                    <label for="register-first-name" class="text-sm font-semibold text-slate-900">First Name</label>
+                                    <input id="register-first-name" name="first_name" type="text" value="{{ old('first_name') }}" placeholder="First name" class="auth-field mt-2" autocomplete="given-name" pattern="[A-Za-zÑñ .'\-]+" title="Use letters only." data-name-field data-step-required>
+                                </div>
+                                <div>
+                                    <label for="register-last-name" class="text-sm font-semibold text-slate-900">Last Name</label>
+                                    <input id="register-last-name" name="last_name" type="text" value="{{ old('last_name') }}" placeholder="Last name" class="auth-field mt-2" autocomplete="family-name" pattern="[A-Za-zÑñ .'\-]+" title="Use letters only." data-name-field data-step-required>
+                                </div>
+                                <div>
+                                    <label for="register-suffix" class="text-sm font-semibold text-slate-900">Suffix</label>
+                                    <select id="register-suffix" name="suffix" class="auth-field mt-2" autocomplete="honorific-suffix">
+                                        <option value="">None</option>
+                                        <option value="Jr." @selected(old('suffix') === 'Jr.')>Jr.</option>
+                                        <option value="Sr." @selected(old('suffix') === 'Sr.')>Sr.</option>
+                                        <option value="II" @selected(old('suffix') === 'II')>II</option>
+                                        <option value="III" @selected(old('suffix') === 'III')>III</option>
+                                        <option value="IV" @selected(old('suffix') === 'IV')>IV</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="mt-4 grid gap-4 sm:grid-cols-3">
+                                <div>
+                                    <label for="register-gender" class="text-sm font-semibold text-slate-900">Gender</label>
+                                    <select id="register-gender" name="gender" class="auth-field mt-2" data-step-required>
+                                        <option value="">Select</option>
+                                        <option value="female" @selected(old('gender') === 'female')>Female</option>
+                                        <option value="male" @selected(old('gender') === 'male')>Male</option>
+                                        <option value="non_binary" @selected(old('gender') === 'non_binary')>Non-binary</option>
+                                        <option value="prefer_not_to_say" @selected(old('gender') === 'prefer_not_to_say')>Prefer not to say</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="register-age" class="text-sm font-semibold text-slate-900">Age</label>
+                                    <input id="register-age" name="age" type="number" min="15" max="100" step="1" inputmode="numeric" value="{{ old('age') }}" placeholder="Age" class="auth-field mt-2" data-birth-age data-step-required>
+                                </div>
+                                <div>
+                                    <label for="register-birthdate" class="text-sm font-semibold text-slate-900">Birthdate</label>
+                                    <input id="register-birthdate" name="birthdate" type="date" value="{{ old('birthdate') }}" class="auth-field mt-2" data-birthdate data-step-required>
+                                </div>
+                            </div>
+
+                            <div class="mt-4">
+                                <label for="register-disability" class="text-sm font-semibold text-slate-900">Disability</label>
+                                <select id="register-disability" name="disability" class="auth-field mt-2" data-step-required>
+                                    <option value="">Select disability</option>
+                                    @foreach ($disabilityTypes as $disability)
+                                        <option value="{{ $disability }}" @selected(old('disability') === $disability)>{{ $disability }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+
+                            <div class="mt-4">
+                                <label for="register-address" class="text-sm font-semibold text-slate-900">Street Address</label>
+                                <select id="register-address" name="street_address" class="auth-field mt-2" data-step-required>
+                                    <option value="">Select Dasmarinas address</option>
+                                    @foreach ($dasmaAddresses as $address)
+                                        <option value="{{ $address }}" @selected(old('street_address') === $address)>{{ $address }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+
+                            <div class="mt-4">
+                                <div>
+                                    <label for="register-city" class="text-sm font-semibold text-slate-900">City</label>
+                                    <input id="register-city" type="text" value="Dasmarinas" disabled class="auth-field mt-2 bg-slate-100 text-slate-600">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 is-hidden" data-register-step="2">
+                            <div>
+                                <label for="register-pwd-id" class="text-sm font-semibold text-slate-900">PWD ID Verification</label>
+                                <label for="register-pwd-id" class="auth-file-upload mt-2" data-file-upload>
+                                    <input id="register-pwd-id" name="pwd_id" type="file" accept=".jpg,.jpeg,.png,.pdf" class="auth-file-input" data-step-required>
+                                    <span class="auth-file-upload__icon" aria-hidden="true">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.75V5.75M8.25 9.5 12 5.75 15.75 9.5M5.75 18.25h12.5" />
+                                        </svg>
+                                    </span>
+                                    <span class="auth-file-upload__body">
+                                        <span class="auth-file-upload__title">Upload PWD ID</span>
+                                        <span class="auth-file-upload__meta" data-file-name data-no-translate>No file selected</span>
+                                    </span>
+                                    <span class="auth-file-upload__button">Browse</span>
+                                </label>
+                                <p class="mt-2 text-xs font-semibold text-slate-500">Upload JPG, PNG, or PDF. Maximum file size is 5MB.</p>
+                            </div>
+
+                            <div class="mt-5">
+                                <label for="register-contact" class="text-sm font-semibold text-slate-900">Contact Number</label>
+                                <input id="register-contact" name="contact_number" type="tel" value="{{ old('contact_number') }}" placeholder="09XX XXX XXXX" class="auth-field mt-2" data-step-required>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 is-hidden" data-register-step="3">
+                            <div>
+                                <label for="register-email" class="text-sm font-semibold text-slate-900">Email Address</label>
+                                <input id="register-email" name="email" type="email" value="{{ old('email') }}" placeholder="you@example.com" class="auth-field mt-2" data-step-required>
+                            </div>
+
+                            <div class="mt-5 grid gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label for="register-password" class="text-sm font-semibold text-slate-900">Password</label>
+                                    <input id="register-password" name="password" type="password" minlength="8" placeholder="Create a password" class="auth-field mt-2" data-step-required>
+                                </div>
+                                <div>
+                                    <label for="register-password-confirmation" class="text-sm font-semibold text-slate-900">Confirm Password</label>
+                                    <input id="register-password-confirmation" name="password_confirmation" type="password" minlength="8" placeholder="Confirm password" class="auth-field mt-2" data-step-required>
+                                </div>
+                            </div>
+
+                            <label class="mt-5 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600" data-pwd-only>
+                                <input type="checkbox" name="final_confirmation" value="1" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#176c3a] focus:ring-[#176c3a]" @checked(old('final_confirmation')) data-step-required>
+                                <span>I confirm that my information is correct and my PWD ID is valid for verification.</span>
+                            </label>
+                        </div>
+
+                        <div class="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+                            <button type="button" class="auth-secondary-button is-hidden" data-register-prev>Back</button>
+                            <button type="button" class="auth-primary-button sm:ml-auto" data-register-next>Next</button>
+                            <button type="submit" class="auth-primary-button is-hidden sm:ml-auto" data-register-submit>Create Account</button>
+                        </div>
+
+                        <p class="mt-6 text-center text-sm text-slate-500">
+                            Already have an account?
+                            <a href="{{ route('login') }}" class="font-semibold text-[#176c3a] hover:text-[#0f4e2b]">Login</a>
+                        </p>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+@endsection
