@@ -1,8 +1,17 @@
 @extends('layout.app')
 
 @php
-    $verificationEmail = session('verification_email');
+    $verificationEmail = session('verification_email', old('email'));
     $verificationSent = session('verification_sent', false);
+    $verificationStatus = session('verification_status');
+    $verificationMessage = session('verification_message');
+    $noticeClasses = $verificationSent
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+        : 'border-amber-200 bg-amber-50 text-amber-800';
+
+    if ($verificationStatus === 'failed') {
+        $noticeClasses = 'border-red-100 bg-red-50 text-red-700';
+    }
 @endphp
 
 @section('content')
@@ -19,15 +28,15 @@
 
             @if ($verificationEmail && $verificationSent)
                 <p class="mt-3 text-center text-sm leading-6 text-slate-500">
-                    We sent the verification link to
+                    A confirmation link was sent to
                     <span class="font-bold text-[#176c3a]">{{ $verificationEmail }}</span>.
-                    Open your Gmail inbox and click the link to confirm your account.
+                    Confirm your account using the link, then this platform will safely continue your setup.
                 </p>
             @elseif ($verificationEmail)
                 <p class="mt-3 text-center text-sm leading-6 text-slate-500">
                     Your account was saved for
                     <span class="font-bold text-[#176c3a]">{{ $verificationEmail }}</span>,
-                    but Gmail SMTP is not configured yet.
+                    but the verification email was not sent yet.
                 </p>
             @else
                 <p class="mt-3 text-center text-sm leading-6 text-slate-500">
@@ -35,19 +44,41 @@
                 </p>
             @endif
 
-            @unless ($verificationSent)
-                <div class="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-                    To send real Gmail verification emails, update <span class="font-bold">MAIL_USERNAME</span>,
-                    <span class="font-bold">MAIL_PASSWORD</span>, and <span class="font-bold">APP_URL</span> in your .env file.
+            @if ($verificationMessage)
+                <div class="mt-5 rounded-lg border px-4 py-3 text-sm font-semibold {{ $noticeClasses }}">
+                    {{ $verificationMessage }}
                 </div>
-            @endunless
-
-            @if ($verificationSent)
-                <a href="https://mail.google.com/" target="_blank" rel="noopener" class="auth-primary-button mt-7 w-full">Open Gmail</a>
-            @else
-                <a href="{{ route('login') }}" class="auth-primary-button mt-7 w-full">Go to Login</a>
             @endif
+
+            @if ($errors->any())
+                <div class="mt-5 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                    {{ $errors->first() }}
+                </div>
+            @endif
+
+            <form action="{{ route('verification.send') }}" method="POST" class="mt-7">
+                @csrf
+
+                @if ($verificationEmail)
+                    <input type="hidden" name="email" value="{{ $verificationEmail }}">
+                @else
+                    <label for="verification-email" class="text-sm font-semibold text-slate-900">Email Address</label>
+                    <input id="verification-email" name="email" type="email" value="{{ old('email') }}" placeholder="you@example.com" class="auth-field mt-2" required>
+                @endif
+
+                <button type="submit" class="auth-primary-button mt-4 w-full">
+                    {{ $verificationSent ? 'Resend verification link' : 'Send verification link' }}
+                </button>
+            </form>
+
+            <div class="mt-3">
+                <a href="{{ route('login') }}" class="auth-secondary-button w-full">Go to Login</a>
+            </div>
         </div>
+
+        @if ($verificationEmail && $verificationSent)
+            <div hidden data-verification-swal data-swal-title="Confirm your account" data-swal-text="We sent a secure verification link to {{ $verificationEmail }}. Confirm using that link, then the platform will continue your account setup." data-swal-icon="success"></div>
+        @endif
     </div>
 </section>
 @endsection

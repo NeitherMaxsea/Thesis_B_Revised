@@ -1,5 +1,7 @@
 @extends('layout.dashboard')
 
+{{-- APPLICANT ONLY: update the approved applicant dashboard here. Access is guarded in routes/web.php. --}}
+
 @php
     $user = auth()->user();
     $displayName = $user?->first_name ?: $user?->name;

@@ -71,6 +71,12 @@
                             </div>
                         @endif
 
+                        @if (session('status'))
+                            <div class="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+                                {{ session('status') }}
+                            </div>
+                        @endif
+
                         <div class="mt-7">
                             <label for="login-email" class="text-sm font-semibold text-slate-900">Email Address</label>
                             <div class="auth-input-shell mt-2 flex h-12 items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4">

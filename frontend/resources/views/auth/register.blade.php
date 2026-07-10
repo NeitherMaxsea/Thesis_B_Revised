@@ -80,24 +80,7 @@
         'Zone IV',
     ];
 
-    $disabilityTypes = [
-        'Cancer Survivors and Rare Disease Individuals',
-        'Chronic Kidney Disease / Dialysis Patient',
-        'Deaf and Hard of Hearing Individuals',
-        'Diabetes with Complications',
-        'Dwarfism',
-        'Epilepsy',
-        'Intellectual Disability',
-        'Learning Disability',
-        'Learning Disability (Dyslexic)',
-        'Lower Limb Amputation/Deformity and Wheelchair Users',
-        'Mental and Psychosocial Disability Individuals',
-        'Physical Disability',
-        'Severe Heart Disease',
-        'Speech Impairment',
-        'Upper Limb Amputation/Deformity',
-        'Visually Impaired',
-    ];
+    $disabilityTypes = config('applicant.disabilities');
 @endphp
 
 @section('content')
@@ -186,6 +169,7 @@
                             </button>
                         </div>
 
+                        {{-- ROLE SELECTOR: shared entry point for PWD applicants and employers. JS behavior lives in modules/auth-registration.js. --}}
                         <div class="mt-6">
                             <p class="text-sm font-semibold text-slate-900">Account Type</p>
                             <input type="hidden" name="account_type" value="{{ $accountType }}" data-auth-role-input>
@@ -218,6 +202,8 @@
                         </div>
 
                         <div class="mt-6" data-register-step="1">
+                        {{-- APPLICANT ONLY: profile details required before admin can verify the PWD ID. --}}
+                        <div data-applicant-only>
                             <div class="grid gap-4 sm:grid-cols-[1fr_1fr_8rem]">
                                 <div>
                                     <label for="register-first-name" class="text-sm font-semibold text-slate-900">First Name</label>
@@ -289,7 +275,29 @@
                             </div>
                         </div>
 
+                        <div class="is-hidden" data-employer-only>
+                            <div class="rounded-lg border border-[#cce5d4] bg-[#f2fbf5] px-4 py-3 text-xs font-semibold leading-5 text-[#276640]">
+                                Set up your business profile first. You will upload the required registration documents in the next step.
+                            </div>
+                            <div class="mt-5">
+                                <label for="register-company-name" class="text-sm font-semibold text-slate-900">Business / Company Name</label>
+                                <input id="register-company-name" name="company_name" type="text" value="{{ old('company_name') }}" placeholder="Registered business name" class="auth-field mt-2" maxlength="160" data-step-required>
+                            </div>
+                            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label for="register-employer-contact-name" class="text-sm font-semibold text-slate-900">Authorized Representative</label>
+                                    <input id="register-employer-contact-name" name="employer_contact_name" type="text" value="{{ old('employer_contact_name') }}" placeholder="Full name" class="auth-field mt-2" maxlength="120" data-name-field data-step-required>
+                                </div>
+                                <div>
+                                    <label for="register-employer-contact" class="text-sm font-semibold text-slate-900">Contact Number</label>
+                                    <input id="register-employer-contact" name="employer_contact_number" type="tel" value="{{ old('employer_contact_number') }}" placeholder="10 digits" inputmode="numeric" pattern="\d{10}" maxlength="10" class="auth-field mt-2" data-phone-input data-step-required>
+                                </div>
+                            </div>
+                        </div>
+                        </div>
+
                         <div class="mt-6 is-hidden" data-register-step="2">
+                            <div data-applicant-only>
                             <div>
                                 <label for="register-pwd-id" class="text-sm font-semibold text-slate-900">PWD ID Verification</label>
                                 <label for="register-pwd-id" class="auth-file-upload mt-2" data-file-upload>
@@ -310,14 +318,40 @@
 
                             <div class="mt-5">
                                 <label for="register-contact" class="text-sm font-semibold text-slate-900">Contact Number</label>
-                                <input id="register-contact" name="contact_number" type="tel" value="{{ old('contact_number') }}" placeholder="09XX XXX XXXX" class="auth-field mt-2" data-step-required>
+                                <input id="register-contact" name="contact_number" type="tel" value="{{ old('contact_number') }}" placeholder="10 digits" inputmode="numeric" pattern="\d{10}" maxlength="10" class="auth-field mt-2" data-phone-input data-step-required>
+                            </div>
+                            </div>
+
+                            <div class="is-hidden" data-employer-only>
+                                <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold leading-5 text-amber-800">
+                                    Upload one PDF, DOC, or DOCX for each document. Each file can be up to 10MB. The system will assign and monitor the document expiry date automatically after upload.
+                                </div>
+                                <div class="mt-5 grid gap-4 sm:grid-cols-2">
+                                    @foreach ([
+                                        'dole_certificate' => 'DOLE Certificate',
+                                        'bir_certificate' => 'BIR Certificate',
+                                        'business_permit' => 'Business Permit',
+                                        'dti_certificate' => 'DTI Certificate',
+                                    ] as $field => $label)
+                                        <div class="rounded-lg border border-slate-200 p-3">
+                                            <label for="register-{{ $field }}" class="text-sm font-semibold text-slate-900">{{ $label }}</label>
+                                            <label for="register-{{ $field }}" class="auth-file-upload mt-2" data-file-upload>
+                                                <input id="register-{{ $field }}" name="{{ $field }}" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="auth-file-input" data-employer-file-input data-step-required>
+                                                <span class="auth-file-upload__icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.75V5.75M8.25 9.5 12 5.75 15.75 9.5M5.75 18.25h12.5" /></svg></span>
+                                                <span class="auth-file-upload__body"><span class="auth-file-upload__title">Choose {{ $label }}</span><span class="auth-file-upload__meta" data-employer-file-name="{{ $field }}">No file selected</span></span>
+                                                <span class="auth-file-upload__button">Browse</span>
+                                            </label>
+                                            <p class="mt-2 text-[11px] font-semibold text-slate-500">PDF, DOC, or DOCX · maximum 10MB · expiry set by system</p>
+                                        </div>
+                                    @endforeach
+                                </div>
                             </div>
                         </div>
 
                         <div class="mt-6 is-hidden" data-register-step="3">
                             <div>
                                 <label for="register-email" class="text-sm font-semibold text-slate-900">Email Address</label>
-                                <input id="register-email" name="email" type="email" value="{{ old('email') }}" placeholder="you@example.com" class="auth-field mt-2" data-step-required>
+                                <input id="register-email" name="email" type="email" value="{{ old('email') }}" placeholder="Your email" class="auth-field mt-2" data-step-required>
                             </div>
 
                             <div class="mt-5 grid gap-4 sm:grid-cols-2">
@@ -331,9 +365,9 @@
                                 </div>
                             </div>
 
-                            <label class="mt-5 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600" data-pwd-only>
+                            <label class="mt-5 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
                                 <input type="checkbox" name="final_confirmation" value="1" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#176c3a] focus:ring-[#176c3a]" @checked(old('final_confirmation')) data-step-required>
-                                <span>I confirm that my information is correct and my PWD ID is valid for verification.</span>
+                                <span data-final-confirmation-copy>I confirm that my information is correct and my PWD ID is valid for verification.</span>
                             </label>
                         </div>
 

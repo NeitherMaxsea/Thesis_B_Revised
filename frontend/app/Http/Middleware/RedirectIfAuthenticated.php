@@ -21,6 +21,20 @@ class RedirectIfAuthenticated
 
         foreach ($guards as $guard) {
             if (Auth::guard($guard)->check()) {
+                $user = Auth::guard($guard)->user();
+
+                if ($user?->account_type === 'admin') {
+                    return redirect()->route('admin.dashboard');
+                }
+
+                if ($user?->account_type === 'pwd_applicant') {
+                    return redirect()->route(
+                        $user->applicant_review_status === 'approved'
+                            ? 'applicant.dashboard'
+                            : 'applicant.review'
+                    );
+                }
+
                 return redirect(RouteServiceProvider::HOME);
             }
         }

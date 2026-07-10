@@ -41,8 +41,10 @@ return [
             'port' => env('MAIL_PORT', 587),
             'encryption' => env('MAIL_ENCRYPTION', 'tls'),
             'username' => env('MAIL_USERNAME'),
-            'password' => env('MAIL_PASSWORD'),
-            'timeout' => null,
+            'password' => str_contains((string) env('MAIL_HOST'), 'gmail') && env('MAIL_PASSWORD') !== null
+                ? preg_replace('/\s+/', '', trim((string) env('MAIL_PASSWORD'), "\"'"))
+                : env('MAIL_PASSWORD'),
+            'timeout' => env('MAIL_TIMEOUT', 8),
             'local_domain' => env('MAIL_EHLO_DOMAIN'),
         ],
 

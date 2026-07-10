@@ -10,12 +10,14 @@
                 </svg>
             </div>
 
-            <h1 class="mt-5 text-2xl font-bold text-slate-950">Email verified</h1>
+            <h1 class="mt-5 text-2xl font-bold text-slate-950">Account confirmed</h1>
             <p class="mt-3 text-sm leading-6 text-slate-500">
-                Done. Your email is confirmed. Please wait while we move you to your review screen.
+                Your email is verified. Please wait while we securely load the next step for your account.
             </p>
-
-            <a href="{{ $redirectUrl }}" class="auth-primary-button mt-7 w-full">Continue</a>
+            <div class="mt-7 flex items-center justify-center gap-2 text-sm font-semibold text-[#176c3a]">
+                <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#176c3a] border-t-transparent"></span>
+                Loading your account…
+            </div>
         </div>
     </div>
 </section>

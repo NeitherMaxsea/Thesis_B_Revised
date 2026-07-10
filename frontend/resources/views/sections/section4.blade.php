@@ -1,4 +1,4 @@
-<section class="scroll-reveal bg-white py-14 sm:py-16" data-scroll-reveal>
+<section id="faq" class="scroll-reveal scroll-mt-24 bg-white py-14 sm:py-16" data-scroll-reveal>
     <div class="mx-auto max-w-[1120px] px-5">
         <div class="text-center">
             <h2 class="text-3xl font-bold leading-tight text-slate-950 sm:text-[42px] lg:text-[48px]">

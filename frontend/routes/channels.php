@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Conversation;
+use App\Models\User;
 use Illuminate\Support\Facades\Broadcast;
 
 /*
@@ -15,4 +17,9 @@ use Illuminate\Support\Facades\Broadcast;
 
 Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
     return (int) $user->id === (int) $id;
+});
+
+// Only the two participants may subscribe to a private conversation channel.
+Broadcast::channel('chat.conversation.{conversation}', function (User $user, Conversation $conversation) {
+    return $conversation->hasParticipant($user);
 });

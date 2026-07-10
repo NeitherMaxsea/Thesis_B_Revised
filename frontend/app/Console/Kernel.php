@@ -12,7 +12,11 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // $schedule->command('inspire')->hourly();
+        // Run through Laravel's scheduler/Hostinger cron so expired employer
+        // documents remove associated jobs from applicant matching promptly.
+        $schedule->command('employer-documents:refresh-statuses')
+            ->dailyAt('00:05')
+            ->withoutOverlapping();
     }
 
     /**

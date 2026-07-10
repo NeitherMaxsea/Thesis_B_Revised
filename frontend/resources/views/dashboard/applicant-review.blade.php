@@ -1,5 +1,7 @@
 @extends('layout.dashboard')
 
+{{-- APPLICANT ONLY: this page shows the status and admin note from applicant_review_status / applicant_review_notes. --}}
+
 @php
     $user = auth()->user();
     $status = $user?->applicant_review_status ?: 'pending';

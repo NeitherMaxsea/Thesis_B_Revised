@@ -1,160 +1,219 @@
 @extends('layout.admin')
 
 @php
-    use Illuminate\Support\Facades\Storage;
+    use Illuminate\Support\Str;
 
-    $statusStyles = [
-        'pending' => 'admin-status admin-status--pending',
-        'approved' => 'admin-status admin-status--approved',
-        'declined' => 'admin-status admin-status--declined',
+    $profileCount = $stats['profiles'] ?? 0;
+    $profileTotal = max($profileCount, 1);
+    $pendingPercent = $profileCount > 0 ? round((($stats['pending'] ?? 0) / $profileTotal) * 100) : 0;
+    $applicantPercent = $profileCount > 0 ? round(((($stats['applicants'] ?? 0) - ($stats['pending'] ?? 0)) / $profileTotal) * 100) : 0;
+    $businessPercent = $profileCount > 0 ? max(0, 100 - $pendingPercent - $applicantPercent) : 0;
+    $applicantEnd = $pendingPercent + $applicantPercent;
+    $donutStyle = $profileCount > 0
+        ? "background: conic-gradient(#dda936 0 {$pendingPercent}%, #377ff0 {$pendingPercent}% {$applicantEnd}%, #7839e8 {$applicantEnd}% 100%)"
+        : 'background: #e7edf1';
+
+    $metricCards = [
+        ['label' => 'Applicant', 'value' => $stats['applicants'], 'note' => 'Applicant accounts', 'tone' => 'blue', 'icon' => 'users-round'],
+        ['label' => 'Business', 'value' => $stats['employers'], 'note' => 'Company accounts', 'tone' => 'violet', 'icon' => 'building-2'],
+        ['label' => 'Jobs', 'value' => $stats['jobs'], 'note' => 'Published listings', 'tone' => 'purple', 'icon' => 'briefcase-business'],
+        ['label' => 'Deleted', 'value' => $stats['deleted'], 'note' => 'History deleted users', 'tone' => 'rose', 'icon' => 'trash-2'],
+        ['label' => 'Pending', 'value' => $stats['pending'], 'note' => 'Awaiting review', 'tone' => 'amber', 'icon' => 'hourglass'],
+        ['label' => 'Approved', 'value' => $stats['approved'], 'note' => 'Approved records', 'tone' => 'green', 'icon' => 'badge-check'],
+        ['label' => 'Rejected', 'value' => $stats['declined'], 'note' => 'Needs follow-up', 'tone' => 'red', 'icon' => 'circle-x'],
+        ['label' => 'Active', 'value' => $stats['active'], 'note' => 'Currently active', 'tone' => 'mint', 'icon' => 'circle-check'],
+        ['label' => 'Inactive', 'value' => $stats['inactive'], 'note' => 'Currently inactive', 'tone' => 'slate', 'icon' => 'circle-slash'],
     ];
+
+    $chartBottom = 180;
+    $chartTop = 42;
+    $chartLeft = 12;
+    $chartRight = 808;
+    $chartHeight = $chartBottom - $chartTop;
+    $chartStep = $accountTrends->count() > 1 ? ($chartRight - $chartLeft) / ($accountTrends->count() - 1) : 0;
+    $chartMaximum = max(1, (int) $accountTrends->max(fn ($point) => max($point['applicants'], $point['employers'])));
+    $chartCoordinate = function (int $value, int $index) use ($chartBottom, $chartHeight, $chartMaximum, $chartLeft, $chartStep): string {
+        $x = $chartLeft + ($chartStep * $index);
+        $y = $chartBottom - (($value / $chartMaximum) * $chartHeight);
+
+        return number_format($x, 1, '.', '').','.number_format($y, 1, '.', '');
+    };
+    $applicantChartPoints = $accountTrends->values()
+        ->map(fn ($point, $index) => $chartCoordinate($point['applicants'], $index));
+    $businessChartPoints = $accountTrends->values()
+        ->map(fn ($point, $index) => $chartCoordinate($point['employers'], $index));
+    $applicantAreaPoints = "{$chartLeft},{$chartBottom} {$applicantChartPoints->implode(' ')} {$chartRight},{$chartBottom}";
 @endphp
 
 @section('content')
-<section class="dashboard-hero">
-    <div>
-        <p class="dashboard-eyebrow">Admin</p>
-        <h1>Applicant Review Center</h1>
-        <p>Review registered applicants, inspect their submitted details and PWD ID files, then approve or decline their access.</p>
-    </div>
-</section>
+<div id="admin-dashboard" class="admin-dashboard" aria-label="Administration dashboard">
+    @if (session('status'))
+        <div class="admin-dashboard-alert" role="status">{{ session('status') }}</div>
+    @endif
 
-@if (session('status'))
-    <div class="admin-alert">
-        {{ session('status') }}
-    </div>
-@endif
-
-<section class="dashboard-grid dashboard-grid--stats" aria-label="Admin summary">
-    <article class="dashboard-card dashboard-stat">
-        <span>Applicants</span>
-        <strong>{{ $stats['applicants'] }}</strong>
-        <small>Total PWD applicant accounts.</small>
-    </article>
-    <article class="dashboard-card dashboard-stat">
-        <span>Pending</span>
-        <strong>{{ $stats['pending'] }}</strong>
-        <small>Waiting for review.</small>
-    </article>
-    <article class="dashboard-card dashboard-stat">
-        <span>Employers</span>
-        <strong>{{ $stats['employers'] }}</strong>
-        <small>Registered employer accounts.</small>
-    </article>
-</section>
-
-<section class="admin-grid">
-    <div class="admin-panel">
-        <div class="dashboard-card__header">
-            <div>
-                <span>Review Queue</span>
-                <h2>Applicants</h2>
-            </div>
+    @if ($errors->any())
+        <div class="admin-dashboard-alert admin-dashboard-alert--error" role="alert">
+            {{ $errors->first() }}
         </div>
+    @endif
 
-        <div class="admin-applicant-list">
-            @forelse ($applicants as $applicant)
-                @php
-                    $status = $applicant->applicant_review_status ?: 'pending';
-                    $fileUrl = $applicant->pwd_id_path ? Storage::url($applicant->pwd_id_path) : null;
-                    $fileExtension = strtolower(pathinfo($applicant->pwd_id_path ?? '', PATHINFO_EXTENSION));
-                    $isImage = in_array($fileExtension, ['jpg', 'jpeg', 'png'], true);
-                @endphp
-
-                <article class="admin-applicant-card">
-                    <div class="admin-applicant-card__top">
-                        <div>
-                            <h3>{{ $applicant->name }}</h3>
-                            <p>{{ $applicant->email }}</p>
-                        </div>
-                        <span class="{{ $statusStyles[$status] ?? $statusStyles['pending'] }}">{{ ucfirst($status) }}</span>
-                    </div>
-
-                    <div class="admin-detail-grid">
-                        <div>
-                            <small>Gender</small>
-                            <strong>{{ $applicant->gender ?: 'Not provided' }}</strong>
-                        </div>
-                        <div>
-                            <small>Age</small>
-                            <strong>{{ $applicant->age ?: 'Not provided' }}</strong>
-                        </div>
-                        <div>
-                            <small>Birthdate</small>
-                            <strong>{{ $applicant->birthdate?->format('M d, Y') ?: 'Not provided' }}</strong>
-                        </div>
-                        <div>
-                            <small>Contact</small>
-                            <strong>{{ $applicant->contact_number ?: 'Not provided' }}</strong>
-                        </div>
-                        <div class="admin-detail-grid__wide">
-                            <small>Disability</small>
-                            <strong>{{ $applicant->disability ?: 'Not provided' }}</strong>
-                        </div>
-                        <div class="admin-detail-grid__wide">
-                            <small>Address</small>
-                            <strong>{{ $applicant->street_address ? $applicant->street_address.', '.$applicant->city : 'Not provided' }}</strong>
-                        </div>
-                    </div>
-
-                    <div class="admin-storage-box">
-                        <div>
-                            <small>PWD ID Storage</small>
-                            <strong>{{ $applicant->pwd_id_path ?: 'No file uploaded' }}</strong>
-                        </div>
-
-                        @if ($fileUrl)
-                            @if ($isImage)
-                                <a href="{{ $fileUrl }}" target="_blank" rel="noopener" class="admin-file-preview">
-                                    <img src="{{ $fileUrl }}" alt="PWD ID upload for {{ $applicant->name }}">
-                                </a>
-                            @else
-                                <a href="{{ $fileUrl }}" target="_blank" rel="noopener" class="admin-file-link">Open PDF/File</a>
-                            @endif
-                        @endif
-                    </div>
-
-                    @if ($applicant->applicant_review_notes)
-                        <p class="admin-review-note">{{ $applicant->applicant_review_notes }}</p>
-                    @endif
-
-                    <div class="admin-review-actions">
-                        <form action="{{ route('admin.applicants.approve', $applicant) }}" method="POST">
-                            @csrf
-                            <button type="submit" class="admin-approve-button">Approve</button>
-                        </form>
-
-                        <form action="{{ route('admin.applicants.decline', $applicant) }}" method="POST" class="admin-decline-form">
-                            @csrf
-                            <input type="text" name="applicant_review_notes" placeholder="Reason, e.g. no valid PWD ID">
-                            <button type="submit" class="admin-decline-button">Decline</button>
-                        </form>
-                    </div>
-                </article>
-            @empty
-                <p class="admin-empty">No applicant accounts yet.</p>
-            @endforelse
-        </div>
-    </div>
-
-    <aside class="admin-panel">
-        <div class="dashboard-card__header">
-            <div>
-                <span>Accounts</span>
-                <h2>Employers</h2>
-            </div>
-        </div>
-
-        <div class="admin-employer-list">
-            @forelse ($employers as $employer)
-                <div class="admin-employer-item">
-                    <strong>{{ $employer->name }}</strong>
-                    <small>{{ $employer->email }}</small>
+    <section class="admin-metric-grid" aria-label="Account summary">
+        @foreach ($metricCards as $card)
+            <article class="admin-metric-card admin-metric-card--{{ $card['tone'] }}">
+                <div class="admin-metric-card__top">
+                    <span>{{ $card['label'] }}</span>
+                    <span class="admin-metric-card__icon" aria-hidden="true"><i data-lucide="{{ $card['icon'] }}"></i></span>
                 </div>
-            @empty
-                <p class="admin-empty">No employer accounts yet.</p>
-            @endforelse
+                <strong>{{ $card['value'] }}</strong>
+                <small>{{ $card['note'] }}</small>
+            </article>
+        @endforeach
+    </section>
+
+    <section class="admin-dashboard-analytics" aria-label="Account analytics">
+        <article class="admin-insight-card admin-trends-card">
+            <header class="admin-insight-card__heading">
+                <div>
+                    <h2>Account Trends</h2>
+                    <p>Monthly applicant and employer activity</p>
+                </div>
+                <span class="admin-live-chip">6 months</span>
+            </header>
+
+            <div class="admin-trend-summaries">
+                <div class="admin-trend-summary admin-trend-summary--applicant">
+                    <span>Applicants</span>
+                    <strong>{{ $latestApplicantCreatedAt ? 'Latest signup' : 'No activity' }}</strong>
+                    <small>{{ $latestApplicantCreatedAt?->format('M d, Y · g:i A') ?? 'No applicant accounts created yet' }}</small>
+                </div>
+                <div class="admin-trend-summary admin-trend-summary--business">
+                    <span>Employers</span>
+                    <strong>{{ $stats['employers'] > 0 ? $stats['employers'] : '0' }}</strong>
+                    <small>{{ $stats['employers'] }} business account{{ $stats['employers'] === 1 ? '' : 's' }}</small>
+                </div>
+            </div>
+
+            <div class="admin-line-chart" role="img" aria-label="Six-month applicant and business account activity chart">
+                <svg viewBox="0 0 820 230" preserveAspectRatio="none" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="admin-area-blue" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stop-color="#4e83f0" stop-opacity=".25" />
+                            <stop offset="100%" stop-color="#4e83f0" stop-opacity="0" />
+                        </linearGradient>
+                    </defs>
+                    <g class="admin-chart-grid-lines">
+                        <path d="M 10 42 H 810 M 10 88 H 810 M 10 134 H 810 M 10 180 H 810" />
+                    </g>
+                    <polygon class="admin-chart-area" points="{{ $applicantAreaPoints }}" />
+                    <polyline class="admin-chart-line admin-chart-line--applicant" points="{{ $applicantChartPoints->implode(' ') }}" />
+                    <polyline class="admin-chart-line admin-chart-line--business" points="{{ $businessChartPoints->implode(' ') }}" />
+                    <g class="admin-chart-dots admin-chart-dots--applicant">
+                        @foreach ($applicantChartPoints as $point)
+                            @php
+                                [$applicantX, $applicantY] = explode(',', $point);
+                            @endphp
+                            <circle cx="{{ $applicantX }}" cy="{{ $applicantY }}" r="4" />
+                        @endforeach
+                    </g>
+                    <g class="admin-chart-dots admin-chart-dots--business">
+                        @foreach ($businessChartPoints as $point)
+                            @php
+                                [$businessX, $businessY] = explode(',', $point);
+                            @endphp
+                            <circle cx="{{ $businessX }}" cy="{{ $businessY }}" r="4" />
+                        @endforeach
+                    </g>
+                </svg>
+                <div class="admin-chart-legend"><span><i class="is-blue"></i>{{ $accountTrends->sum('applicants') }} Applicant</span><span><i class="is-orange"></i>{{ $accountTrends->sum('employers') }} Business</span></div>
+                <div class="admin-chart-months" aria-hidden="true">
+                    @foreach ($accountTrends as $trend)
+                        <span>{{ $trend['label'] }}</span>
+                    @endforeach
+                </div>
+            </div>
+        </article>
+
+        <article class="admin-insight-card admin-distribution-card">
+            <header class="admin-insight-card__heading">
+                <div>
+                    <h2>Profile Distribution</h2>
+                    <p>Pending, applicant, and employer accounts</p>
+                </div>
+                <span class="admin-live-chip">Live</span>
+            </header>
+
+            <div class="admin-donut-wrap">
+                <div class="admin-donut" style="{{ $donutStyle }}">
+                    <div>
+                        <strong>{{ $stats['profiles'] }}</strong>
+                        <span>Profiles synced</span>
+                    </div>
+                </div>
+                <ul class="admin-donut-legend">
+                    <li><i class="is-pending"></i>Pending: {{ $stats['pending'] }} ({{ $pendingPercent }}%)</li>
+                    <li><i class="is-applicant"></i>Applicant: {{ max(0, $stats['applicants'] - $stats['pending']) }} ({{ $applicantPercent }}%)</li>
+                    <li><i class="is-business"></i>Business: {{ $stats['employers'] }} ({{ $businessPercent }}%)</li>
+                </ul>
+            </div>
+        </article>
+    </section>
+
+    <section id="recent-approved" class="admin-recent-table-card" aria-labelledby="recent-approved-title">
+        <header class="admin-recent-table-card__heading">
+            <div>
+                <h2 id="recent-approved-title">Recent Approved</h2>
+                <p>Latest approved accounts</p>
+            </div>
+            <span class="admin-live-chip">{{ $recentApproved->count() }} records of {{ $stats['active'] }} records</span>
+        </header>
+
+        <div class="admin-table-toolbar">
+            <label class="admin-table-search">
+                <i data-lucide="search" aria-hidden="true"></i>
+                <input type="search" placeholder="Search approved accounts..." aria-label="Search approved accounts">
+            </label>
+            <button type="button" class="admin-role-filter"><i data-lucide="sliders-horizontal" aria-hidden="true"></i><span>All Roles</span><i data-lucide="chevron-down" class="admin-role-filter__chevron" aria-hidden="true"></i></button>
         </div>
-    </aside>
-</section>
+
+        <div class="admin-table-scroll">
+            <table class="admin-recent-table">
+                <thead>
+                    <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">Account</th>
+                        <th scope="col">Role</th>
+                        <th scope="col">Created Date &amp; Time</th>
+                        <th scope="col">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($recentApproved as $record)
+                        @php
+                            $account = $record['user'];
+                            $prefix = $record['role'] === 'Business' ? 'BUS' : 'PWD';
+                            $initials = Str::of($account->name)->explode(' ')->filter()->map(fn ($part) => Str::substr($part, 0, 1))->take(2)->implode('');
+                        @endphp
+                        <tr>
+                            <td class="admin-record-id">{{ $prefix }}-{{ str_pad((string) $account->id, 6, '0', STR_PAD_LEFT) }}</td>
+                            <td>
+                                <div class="admin-account-cell">
+                                    <span class="admin-account-avatar admin-account-avatar--{{ Str::lower($record['role']) }}">{{ Str::upper($initials ?: 'AU') }}</span>
+                                    <span><strong>{{ $account->name }}</strong><small>{{ $account->email }}</small></span>
+                                </div>
+                            </td>
+                            <td>{{ $record['role'] }}</td>
+                            <td>{{ $account->created_at?->format('M d, Y · g:i A') ?? '—' }}</td>
+                            <td><span class="admin-status-approved">Approved</span></td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="5" class="admin-table-empty">No approved accounts yet.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+</div>
 @endsection

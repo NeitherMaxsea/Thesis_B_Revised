@@ -1,4 +1,4 @@
-<section class="scroll-reveal bg-white py-12 sm:py-14" data-scroll-reveal>
+<section id="jobs" class="scroll-reveal scroll-mt-24 bg-white py-12 sm:py-14" data-scroll-reveal>
     <div class="mx-auto max-w-[1120px] px-5">
         <div class="text-center">
             <h2 class="text-2xl font-bold leading-tight text-slate-950 sm:text-[30px]">Featured Job Listings</h2>

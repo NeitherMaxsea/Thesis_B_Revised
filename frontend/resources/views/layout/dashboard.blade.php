@@ -1,3 +1,14 @@
+@php
+    $dashboardUser = auth()->user();
+    $isEmployerDashboard = $dashboardUser?->account_type === 'employer';
+    $dashboardDisplayName = $isEmployerDashboard ? ($dashboardUser?->company_name ?: $dashboardUser?->name) : ($dashboardUser?->first_name ?: $dashboardUser?->name);
+    $dashboardDisability = $isEmployerDashboard ? 'Employer account' : ($dashboardUser?->disability ?: 'PWD Applicant');
+    $dashboardInitials = collect(explode(' ', $dashboardDisplayName ?: 'Applicant'))->filter()->take(2)->map(fn ($part) => strtoupper(substr($part, 0, 1)))->implode('');
+    $dashboardHomeRoute = $isEmployerDashboard ? route('employer.dashboard') : route('applicant.dashboard');
+    $dashboardProfileRoute = $isEmployerDashboard ? route('employer.profile') : route('applicant.profile');
+    $dashboardHomeLabel = $isEmployerDashboard ? 'Employer Hub' : 'Applicant Dashboard';
+    $dashboardPrimaryLabel = $isEmployerDashboard ? 'Job Postings' : 'Job Matching';
+@endphp
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -16,17 +27,20 @@
     </noscript>
 
     <header class="dashboard-navbar">
-        <a href="{{ route('applicant.dashboard') }}" class="dashboard-brand" aria-label="Applicant dashboard">
+        <a href="{{ $dashboardHomeRoute }}" class="dashboard-brand" aria-label="{{ $dashboardHomeLabel }}">
             <img src="{{ asset('images/job-employment-logo.png') }}" alt="Job Employment Personal with Disabilities">
-            <span>Applicant Dashboard</span>
+            <span>{{ $dashboardHomeLabel }}</span>
         </a>
 
         <div class="dashboard-actions">
-            <a href="#messages" class="dashboard-icon-button" aria-label="Messages" title="Messages">
+            <a href="{{ $dashboardHomeRoute }}{{ $isEmployerDashboard ? '#job-postings' : '' }}" class="dashboard-job-link {{ request()->routeIs($isEmployerDashboard ? 'employer.dashboard' : 'applicant.dashboard') ? 'is-active' : '' }}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h5A1.5 1.5 0 0 1 16 5.5V7M3 12h18M10 12v2h4v-2" /></svg>
+                <span>{{ $dashboardPrimaryLabel }}</span>
+            </a>
+            <a href="{{ route('messages.index') }}" class="dashboard-icon-button" aria-label="Messages" title="Messages">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4.75 6.75A2.25 2.25 0 0 1 7 4.5h10A2.25 2.25 0 0 1 19.25 6.75v6.5A2.25 2.25 0 0 1 17 15.5H9.25L5 19.25v-12.5Z" />
                 </svg>
-                <span class="dashboard-badge">2</span>
             </a>
 
             <div class="dashboard-notification-wrap">
@@ -66,12 +80,30 @@
                 </div>
             </div>
 
-            <a href="#settings" class="dashboard-icon-button" aria-label="Settings" title="Settings">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.25 5.5 11.1 3.75h1.8l.85 1.75 1.9.7 1.8-.65 1.25 1.25-.65 1.8.7 1.9 1.75.85v1.8l-1.75.85-.7 1.9.65 1.8-1.25 1.25-1.8-.65-1.9.7-.85 1.75h-1.8l-.85-1.75-1.9-.7-1.8.65-1.25-1.25.65-1.8-.7-1.9-1.75-.85v-1.8l1.75-.85.7-1.9-.65-1.8 1.25-1.25 1.8.65 1.9-.7Z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9.25a2.75 2.75 0 1 1 0 5.5 2.75 2.75 0 0 1 0-5.5Z" />
-                </svg>
-            </a>
+            <div class="dashboard-profile-menu" data-dashboard-profile-menu>
+                <button type="button" class="dashboard-profile-menu__toggle" data-dashboard-profile-toggle aria-expanded="false" aria-controls="dashboard-profile-options">
+                    <span class="dashboard-profile-menu__avatar" aria-hidden="true">{{ $dashboardInitials ?: 'PA' }}</span>
+                    <span class="dashboard-profile-menu__copy">
+                        <strong data-dashboard-user-name>{{ $dashboardDisplayName }}</strong>
+                        <small data-dashboard-user-disability>{{ $dashboardDisability }}</small>
+                    </span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
+                </button>
+
+                <div id="dashboard-profile-options" class="dashboard-profile-menu__options" data-dashboard-profile-options hidden>
+                    <a href="{{ $dashboardProfileRoute }}">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.25" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></svg>
+                        Profile settings
+                    </a>
+                    <form action="{{ route('logout') }}" method="POST">
+                        @csrf
+                        <button type="submit">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 6H5v12h5M14 8l4 4-4 4M18 12H9" /></svg>
+                            Logout
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
     </header>
 

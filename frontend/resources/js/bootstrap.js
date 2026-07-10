@@ -5,6 +5,8 @@
  */
 
 import axios from 'axios';
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
 window.axios = axios;
 
 window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
@@ -15,18 +17,42 @@ window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
  * allows your team to easily build robust real-time web applications.
  */
 
-// import Echo from 'laravel-echo';
+// Reverb speaks the Pusher protocol, so Echo can manage authenticated private channels.
+// Reverb is the default. The Pusher branch is a safe hosting fallback for a plan
+// that cannot run a persistent Reverb process.
+const broadcaster = import.meta.env.VITE_BROADCASTER
+    ?? (import.meta.env.VITE_REVERB_APP_KEY ? 'reverb' : '');
 
-// import Pusher from 'pusher-js';
-// window.Pusher = Pusher;
+if (broadcaster === 'pusher' && import.meta.env.VITE_PUSHER_APP_KEY) {
+    window.Pusher = Pusher;
 
-// window.Echo = new Echo({
-//     broadcaster: 'pusher',
-//     key: import.meta.env.VITE_PUSHER_APP_KEY,
-//     cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER ?? 'mt1',
-//     wsHost: import.meta.env.VITE_PUSHER_HOST ? import.meta.env.VITE_PUSHER_HOST : `ws-${import.meta.env.VITE_PUSHER_APP_CLUSTER}.pusher.com`,
-//     wsPort: import.meta.env.VITE_PUSHER_PORT ?? 80,
-//     wssPort: import.meta.env.VITE_PUSHER_PORT ?? 443,
-//     forceTLS: (import.meta.env.VITE_PUSHER_SCHEME ?? 'https') === 'https',
-//     enabledTransports: ['ws', 'wss'],
-// });
+    const pusherOptions = {
+        broadcaster: 'pusher',
+        key: import.meta.env.VITE_PUSHER_APP_KEY,
+        cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER ?? 'mt1',
+        forceTLS: (import.meta.env.VITE_PUSHER_SCHEME ?? 'https') === 'https',
+        enabledTransports: ['ws', 'wss'],
+    };
+    const pusherHost = import.meta.env.VITE_PUSHER_HOST;
+
+    if (pusherHost) {
+        Object.assign(pusherOptions, {
+            wsHost: pusherHost,
+            wsPort: import.meta.env.VITE_PUSHER_PORT ?? 80,
+            wssPort: import.meta.env.VITE_PUSHER_PORT ?? 443,
+        });
+    }
+
+    window.Echo = new Echo(pusherOptions);
+} else if (broadcaster === 'reverb' && import.meta.env.VITE_REVERB_APP_KEY) {
+    window.Pusher = Pusher;
+    window.Echo = new Echo({
+        broadcaster: 'reverb',
+        key: import.meta.env.VITE_REVERB_APP_KEY,
+        wsHost: import.meta.env.VITE_REVERB_HOST ?? window.location.hostname,
+        wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
+        wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
+        forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
+        enabledTransports: ['ws', 'wss'],
+    });
+}
