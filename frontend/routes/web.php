@@ -1,12 +1,12 @@
 <?php
 
-use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AdminController;
-use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ApplicantProfileController;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ChatController;
 use App\Http\Controllers\EmployerController;
-use App\Http\Controllers\JobMatchController;
 use App\Http\Controllers\JobApplicationController;
+use App\Http\Controllers\JobMatchController;
 use App\Models\User;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Http\Request;
@@ -208,9 +208,27 @@ Route::get('/messages', [ChatController::class, 'index'])
     ->middleware(['auth', 'verified'])
     ->name('messages.index');
 
+Route::post('/messages/conversations', [ChatController::class, 'start'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.conversations.store');
+
 Route::post('/messages/{conversation}', [ChatController::class, 'store'])
     ->middleware(['auth', 'verified'])
     ->name('messages.store');
+
+Route::patch('/messages/{conversation}/read', [ChatController::class, 'markRead'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.read');
+
+Route::get('/messages/{conversation}/presence', [ChatController::class, 'presence'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.presence');
+
+Route::post('/activity', function (Request $request) {
+    $request->user()?->forceFill(['last_seen_at' => now()])->save();
+
+    return response()->noContent();
+})->middleware('auth')->name('activity');
 
 // ADMIN ONLY: AdminController performs the second role check before showing or changing reviews.
 Route::get('/admin/dashboard', [AdminController::class, 'index'])

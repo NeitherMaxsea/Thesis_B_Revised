@@ -1,4 +1,4 @@
-@extends('layout.employer')
+@extends('layout.dashboard')
 
 @php
     $initials = collect(explode(' ', $employer->company_name ?: $employer->name))->filter()->take(2)->map(fn ($part) => strtoupper(substr($part, 0, 1)))->implode('');

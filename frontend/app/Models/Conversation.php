@@ -16,6 +16,9 @@ class Conversation extends Model
     protected $fillable = [
         'first_user_id',
         'second_user_id',
+        'context_key',
+        'job_id',
+        'job_application_id',
         'last_message_at',
     ];
 
@@ -39,6 +42,25 @@ class Conversation extends Model
     public function messages(): HasMany
     {
         return $this->hasMany(Message::class);
+    }
+
+    public function job(): BelongsTo
+    {
+        return $this->belongsTo(Job::class);
+    }
+
+    public function jobApplication(): BelongsTo
+    {
+        return $this->belongsTo(JobApplication::class);
+    }
+
+    /**
+     * Kept as a semantic alias for the existing conversation-list view.
+     * Application conversations have exactly one job application.
+     */
+    public function latestJobApplication(): BelongsTo
+    {
+        return $this->belongsTo(JobApplication::class, 'job_application_id');
     }
 
     public function latestMessage(): HasOne

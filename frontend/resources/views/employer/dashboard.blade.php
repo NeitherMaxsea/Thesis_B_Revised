@@ -1,4 +1,4 @@
-@extends('layout.employer')
+@extends('layout.dashboard')
 
 @php
     $documentsValid = $documentStatus === 'valid';
@@ -30,7 +30,7 @@
 
     <div class="employer-dashboard__stats">
         <article><span>Active job posts</span><strong data-employer-job-count>{{ $jobs->where('status', 'published')->count() }}</strong><small>Visible to matching applicants</small></article>
-        <article><span>Applications</span><strong>{{ $jobs->sum('applications_count') }}</strong><small>New applicants can continue in secure messages</small></article>
+        <article><span>Applications</span><strong data-employer-application-count>{{ $jobs->sum('applications_count') }}</strong><small>New applicants can continue in secure messages</small></article>
         <article><span>Document status</span><strong>{{ $documentsValid ? 'Valid' : 'Expired' }}</strong><small>{{ $documentsValid ? 'You can publish job opportunities.' : 'Update documents to continue posting.' }}</small></article>
     </div>
 

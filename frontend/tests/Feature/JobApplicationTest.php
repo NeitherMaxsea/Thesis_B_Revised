@@ -2,11 +2,15 @@
 
 namespace Tests\Feature;
 
-use App\Models\Job;
+use App\Events\JobApplicationSubmitted;
+use App\Models\Conversation;
 use App\Models\EmployerDocument;
+use App\Models\Job;
+use App\Models\JobApplication;
 use App\Models\User;
 use App\Services\EmployerDocumentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Tests\TestCase;
 
 class JobApplicationTest extends TestCase
@@ -46,6 +50,7 @@ class JobApplicationTest extends TestCase
     public function test_applying_to_a_job_creates_a_private_applicant_employer_conversation(): void
     {
         config(['broadcasting.default' => 'null']);
+        Event::fake([JobApplicationSubmitted::class]);
 
         $employer = User::factory()->create([
             'account_type' => 'employer',
@@ -72,24 +77,88 @@ class JobApplicationTest extends TestCase
             ->actingAs($applicant)
             ->post(route('jobs.apply', $job));
 
-        $response->assertRedirect(route('messages.index', ['conversation' => 1]));
+        $application = JobApplication::query()
+            ->whereBelongsTo($job)
+            ->whereBelongsTo($applicant, 'applicant')
+            ->firstOrFail();
+        $conversation = Conversation::query()
+            ->where('job_application_id', $application->id)
+            ->firstOrFail();
+
+        $response->assertRedirect(route('messages.index', ['conversation' => $conversation->id]));
         $this->assertDatabaseHas('job_applications', [
             'job_id' => $job->id,
             'applicant_id' => $applicant->id,
             'status' => 'applied',
         ]);
         $this->assertDatabaseHas('conversations', [
+            'id' => $conversation->id,
+            'job_id' => $job->id,
+            'job_application_id' => $application->id,
             'first_user_id' => min($applicant->id, $employer->id),
             'second_user_id' => max($applicant->id, $employer->id),
         ]);
         $this->assertDatabaseHas('messages', [
-            'conversation_id' => 1,
+            'conversation_id' => $conversation->id,
             'sender_id' => $employer->id,
             'body' => "Application requirements for Customer Support Associate:\n1. Submit your current resume.\n2. Wait for an interview schedule in Messages.",
         ]);
 
+        Event::assertDispatchedTimes(JobApplicationSubmitted::class, 1);
+
         $this->actingAs($applicant)->post(route('jobs.apply', $job));
+        $this->assertDatabaseCount('conversations', 1);
         $this->assertDatabaseCount('messages', 1);
+        Event::assertDispatchedTimes(JobApplicationSubmitted::class, 1);
+    }
+
+    public function test_each_job_application_to_the_same_employer_has_its_own_job_linked_conversation(): void
+    {
+        config(['broadcasting.default' => 'null']);
+
+        $employer = User::factory()->create([
+            'account_type' => 'employer',
+            'employer_document_status' => 'valid',
+            'company_name' => 'Inclusive Works Inc.',
+        ]);
+        $this->createValidDocuments($employer);
+        $applicant = User::factory()->create([
+            'account_type' => 'pwd_applicant',
+            'applicant_review_status' => 'approved',
+        ]);
+        $firstJob = $this->createPublishedJob($employer, 'Customer Support Associate');
+        $secondJob = $this->createPublishedJob($employer, 'Data Entry Associate');
+
+        $this->actingAs($applicant)->post(route('jobs.apply', $firstJob))->assertRedirect();
+        $this->actingAs($applicant)->post(route('jobs.apply', $secondJob))->assertRedirect();
+
+        $firstApplication = JobApplication::query()
+            ->where('job_id', $firstJob->id)
+            ->where('applicant_id', $applicant->id)
+            ->firstOrFail();
+        $secondApplication = JobApplication::query()
+            ->where('job_id', $secondJob->id)
+            ->where('applicant_id', $applicant->id)
+            ->firstOrFail();
+        $firstConversation = Conversation::query()
+            ->where('job_application_id', $firstApplication->id)
+            ->firstOrFail();
+        $secondConversation = Conversation::query()
+            ->where('job_application_id', $secondApplication->id)
+            ->firstOrFail();
+
+        $this->assertFalse($firstConversation->is($secondConversation));
+        $this->assertSame($firstJob->id, $firstConversation->job_id);
+        $this->assertSame($secondJob->id, $secondConversation->job_id);
+        $this->assertSame($firstApplication->id, $firstConversation->job_application_id);
+        $this->assertSame($secondApplication->id, $secondConversation->job_application_id);
+        $this->assertSame("job_application:{$firstApplication->id}", $firstConversation->context_key);
+        $this->assertSame("job_application:{$secondApplication->id}", $secondConversation->context_key);
+        $this->assertTrue($firstConversation->hasParticipant($applicant));
+        $this->assertTrue($firstConversation->hasParticipant($employer));
+        $this->assertTrue($secondConversation->hasParticipant($applicant));
+        $this->assertTrue($secondConversation->hasParticipant($employer));
+        $this->assertDatabaseCount('conversations', 2);
     }
 
     public function test_expired_employer_jobs_are_hidden_and_cannot_receive_applications(): void
@@ -143,5 +212,19 @@ class JobApplicationTest extends TestCase
                 'status' => 'valid',
             ]);
         }
+    }
+
+    private function createPublishedJob(User $employer, string $title): Job
+    {
+        return Job::create([
+            'user_id' => $employer->id,
+            'title' => $title,
+            'location' => 'Dasmarinas, Cavite',
+            'employment_type' => 'full_time',
+            'vacancies' => 1,
+            'description' => "{$title} description.",
+            'application_requirements' => 'Submit your current resume.',
+            'status' => 'published',
+        ]);
     }
 }

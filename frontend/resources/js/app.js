@@ -14,6 +14,8 @@ import { initApplicantChat } from './modules/applicant-chat';
 import { initApplicantProfile } from './modules/applicant-profile';
 import { initEmployerDashboard } from './modules/employer-dashboard';
 import { initJobMatch } from './modules/job-match';
+import { initRealtimeInbox } from './modules/realtime-inbox';
+import { initUserActivity } from './modules/user-activity';
 import { showSweetModal, showSweetToast } from './modules/notifications';
 
 // Application entry point: keep this file as orchestration only.
@@ -26,6 +28,8 @@ initPageMessages({ showSweetToast, showSweetModal });
 initLandingPage();
 initAuthRegistration({ applyTranslations, getCurrentInterfaceLanguage, showSweetToast });
 initAdminDashboard();
+initRealtimeInbox({ showSweetToast });
+initUserActivity();
 initApplicantChat();
 initApplicantProfile();
 initEmployerDashboard();

@@ -8,27 +8,19 @@ use App\Models\JobApplication;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class ChatService
 {
-    public function __construct(private readonly EmployerDocumentService $documents)
-    {
-    }
-
-    /**
-     * Messaging is limited to approved applicant/support pairs and to the
-     * applicant-employer pair created by an actual job application.
-     */
     public function ensureMessagingAccess(User $user): void
     {
         $isApprovedApplicant = $user->account_type === 'pwd_applicant'
             && $user->applicant_review_status === 'approved';
-        $isVerifiedEmployer = $user->account_type === 'employer'
-            && $user->employer_document_status === 'valid';
+        $isEmployer = $user->account_type === 'employer';
 
-        abort_unless($user->account_type === 'admin' || $isApprovedApplicant || $isVerifiedEmployer, 403);
+        abort_unless($user->account_type === 'admin' || $isApprovedApplicant || $isEmployer, 403);
     }
 
     public function conversationsFor(User $user): Collection
@@ -38,9 +30,15 @@ class ChatService
         return Conversation::query()
             ->forParticipant($user->id)
             ->with([
-                'firstParticipant:id,name,first_name,last_name,account_type',
-                'secondParticipant:id,name,first_name,last_name,account_type',
-                'latestMessage.sender:id,name,first_name,last_name',
+                'firstParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
+                'secondParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
+                'latestMessage.sender:id,name,first_name,last_name,company_name,account_type',
+                'latestJobApplication.job:id,user_id,title',
+            ])
+            ->withCount([
+                'messages as unread_count' => fn ($query) => $query
+                    ->where('sender_id', '!=', $user->id)
+                    ->whereNull('read_at'),
             ])
             ->orderByDesc('last_message_at')
             ->orderByDesc('updated_at')
@@ -50,6 +48,8 @@ class ChatService
     public function contactsFor(User $user): Collection
     {
         $this->ensureMessagingAccess($user);
+
+        $columns = ['id', 'name', 'first_name', 'last_name', 'company_name', 'account_type'];
 
         if ($user->account_type === 'admin') {
             return User::query()
@@ -64,13 +64,13 @@ class ChatService
                 })
                 ->orderBy('first_name')
                 ->orderBy('name')
-                ->get(['id', 'name', 'first_name', 'last_name', 'account_type']);
+                ->get($columns);
         }
 
         $supportContacts = User::query()
             ->where('account_type', 'admin')
             ->orderBy('name')
-            ->get(['id', 'name', 'first_name', 'last_name', 'account_type']);
+            ->get($columns);
 
         if ($user->account_type === 'pwd_applicant') {
             $employerIds = Job::query()
@@ -83,7 +83,7 @@ class ChatService
                 ->where('account_type', 'employer')
                 ->where('employer_document_status', 'valid')
                 ->orderBy('company_name')
-                ->get(['id', 'name', 'first_name', 'last_name', 'account_type']);
+                ->get($columns);
 
             return $supportContacts->concat($employerContacts);
         }
@@ -99,7 +99,7 @@ class ChatService
                 ->where('account_type', 'pwd_applicant')
                 ->where('applicant_review_status', 'approved')
                 ->orderBy('first_name')
-                ->get(['id', 'name', 'first_name', 'last_name', 'account_type']);
+                ->get($columns);
 
             return $supportContacts->concat($applicantContacts);
         }
@@ -113,32 +113,70 @@ class ChatService
         abort_unless($conversation->hasParticipant($user), 403);
 
         $relations = [
-            'firstParticipant:id,name,first_name,last_name,account_type',
-            'secondParticipant:id,name,first_name,last_name,account_type',
+            'firstParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
+            'secondParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
+            'latestJobApplication.job:id,user_id,title',
         ];
 
         if ($withMessages) {
-            $relations['messages'] = fn ($query) => $query->with('sender:id,name,first_name,last_name')
+            $relations['messages'] = fn ($query) => $query
+                ->with('sender:id,name,first_name,last_name,company_name,account_type')
                 ->oldest();
         }
 
         return $conversation->load($relations);
     }
 
+    /**
+     * Open the single non-job conversation used for platform support.
+     */
     public function openConversation(User $user, User $contact): Conversation
     {
         $this->ensureMessagingAccess($user);
-        abort_unless($this->canMessage($user, $contact), 403);
+        abort_unless($this->canMessagePlatformSupport($user, $contact), 403);
 
-        [$firstUserId, $secondUserId] = collect([$user->id, $contact->id])
-            ->sort()
-            ->values()
-            ->all();
+        [$firstUserId, $secondUserId] = $this->participantIds($user, $contact);
 
         return Conversation::firstOrCreate([
             'first_user_id' => $firstUserId,
             'second_user_id' => $secondUserId,
+            'context_key' => 'direct',
         ]);
+    }
+
+    /**
+     * Create or load the exact thread belonging to one job application.
+     */
+    public function openApplicationConversation(JobApplication $application): Conversation
+    {
+        $application->loadMissing(['applicant', 'job.employer']);
+        $applicant = $application->applicant;
+        $employer = $application->job?->employer;
+
+        abort_unless($applicant instanceof User && $employer instanceof User, 404);
+        abort_unless($this->canMessageForApplication($applicant, $employer, $application), 403);
+
+        [$firstUserId, $secondUserId] = $this->participantIds($applicant, $employer);
+
+        $conversation = Conversation::firstOrCreate(
+            ['job_application_id' => $application->id],
+            [
+                'first_user_id' => $firstUserId,
+                'second_user_id' => $secondUserId,
+                'context_key' => "job_application:{$application->id}",
+                'job_id' => $application->job_id,
+            ]
+        );
+
+        abort_unless(
+            (int) $conversation->first_user_id === $firstUserId
+            && (int) $conversation->second_user_id === $secondUserId
+            && (int) $conversation->job_id === (int) $application->job_id,
+            409,
+            'The application conversation context is inconsistent.'
+        );
+
+        return $conversation;
     }
 
     public function canSendInConversation(User $user, Conversation $conversation): bool
@@ -147,13 +185,28 @@ class ChatService
             return false;
         }
 
-        $conversation->load([
-            'firstParticipant:id,name,first_name,last_name,account_type,applicant_review_status,employer_document_status',
-            'secondParticipant:id,name,first_name,last_name,account_type,applicant_review_status,employer_document_status',
+        $conversation->loadMissing([
+            'firstParticipant',
+            'secondParticipant',
+            'jobApplication.applicant',
+            'jobApplication.job.employer',
         ]);
+
         $recipient = $conversation->otherParticipant($user);
 
-        return $recipient instanceof User && $this->canMessage($user, $recipient);
+        if (! $recipient instanceof User) {
+            return false;
+        }
+
+        if ($conversation->job_application_id !== null) {
+            $application = $conversation->jobApplication;
+
+            return $application instanceof JobApplication
+                && $this->canMessageForApplication($user, $recipient, $application);
+        }
+
+        return $conversation->context_key === 'direct'
+            && $this->canMessagePlatformSupport($user, $recipient);
     }
 
     public function send(User $sender, Conversation $conversation, string $body): Message
@@ -161,33 +214,81 @@ class ChatService
         $conversation = $this->findConversationFor($sender, $conversation);
         abort_unless($this->canSendInConversation($sender, $conversation), 403);
 
-        // Preserve line breaks so employers can send readable, step-by-step
-        // requirements while still normalizing accidental repeated spaces.
-        $body = trim((string) preg_replace('/[^\S\r\n]+/', ' ', $body));
-
-        abort_if(! preg_match('/\S/', $body), 422, 'A message cannot be empty.');
+        $body = trim((string) preg_replace('/[^\S\r\n]+/u', ' ', $body));
+        abort_if(! preg_match('/\S/u', $body), 422, 'A message cannot be empty.');
 
         return DB::transaction(function () use ($sender, $conversation, $body) {
-            $message = $conversation->messages()->create([
+            /** @var Conversation $lockedConversation */
+            $lockedConversation = Conversation::query()
+                ->lockForUpdate()
+                ->findOrFail($conversation->id);
+
+            $message = $lockedConversation->messages()->create([
                 'sender_id' => $sender->id,
                 'body' => $body,
             ]);
 
-            $conversation->forceFill(['last_message_at' => $message->created_at])->save();
+            $lockedConversation->forceFill(['last_message_at' => $message->created_at])->save();
 
-            return $message->load('sender:id,name,first_name,last_name');
+            return $message->load('sender:id,name,first_name,last_name,company_name,account_type');
         });
+    }
+
+    /**
+     * @return array{conversation_id:int,message_ids:array<int,int>,read_at:Carbon,read_count:int}
+     */
+    public function markAsRead(User $reader, Conversation $conversation): array
+    {
+        $conversation = $this->findConversationFor($reader, $conversation);
+
+        return DB::transaction(function () use ($reader, $conversation) {
+            $readAt = now();
+            $messageIds = $conversation->messages()
+                ->where('sender_id', '!=', $reader->id)
+                ->whereNull('read_at')
+                ->lockForUpdate()
+                ->pluck('id');
+
+            if ($messageIds->isNotEmpty()) {
+                Message::query()
+                    ->whereIn('id', $messageIds)
+                    ->update(['read_at' => $readAt]);
+            }
+
+            return [
+                'conversation_id' => (int) $conversation->id,
+                'message_ids' => $messageIds->map(fn ($id) => (int) $id)->all(),
+                'read_at' => $readAt,
+                'read_count' => $messageIds->count(),
+            ];
+        });
+    }
+
+    public function unreadCount(User $user): int
+    {
+        return Message::query()
+            ->whereNull('read_at')
+            ->where('sender_id', '!=', $user->id)
+            ->whereHas('conversation', fn ($query) => $query->forParticipant($user->id))
+            ->count();
+    }
+
+    public function totalUnreadCount(User $user): int
+    {
+        return $this->unreadCount($user);
     }
 
     public function messagePayload(Message $message): array
     {
-        $message->loadMissing('sender:id,name,first_name,last_name');
+        $message->loadMissing('sender:id,name,first_name,last_name,company_name,account_type');
 
         return [
             'id' => $message->id,
             'conversation_id' => $message->conversation_id,
             'body' => $message->body,
             'sent_at' => $message->created_at?->toIso8601String(),
+            'read_at' => $message->read_at?->toIso8601String(),
+            'is_read' => $message->read_at !== null,
             'sender' => [
                 'id' => $message->sender->id,
                 'name' => $this->displayName($message->sender),
@@ -198,6 +299,10 @@ class ChatService
 
     public function displayName(User $user): string
     {
+        if ($user->account_type === 'employer' && trim((string) $user->company_name) !== '') {
+            return trim($user->company_name);
+        }
+
         $profileName = trim(implode(' ', array_filter([$user->first_name, $user->last_name])));
 
         return $profileName !== '' ? $profileName : $user->name;
@@ -213,7 +318,17 @@ class ChatService
             ->implode('');
     }
 
-    private function canMessage(User $firstUser, User $secondUser): bool
+    /** @return array{0:int,1:int} */
+    private function participantIds(User $firstUser, User $secondUser): array
+    {
+        return collect([$firstUser->id, $secondUser->id])
+            ->sort()
+            ->values()
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
+    private function canMessagePlatformSupport(User $firstUser, User $secondUser): bool
     {
         if ($firstUser->is($secondUser)) {
             return false;
@@ -223,26 +338,42 @@ class ChatService
         $applicant = $roles->get('pwd_applicant');
         $employer = $roles->get('employer');
 
-        $canMessagePlatformSupport = $roles->has('admin') && (
-            ($applicant instanceof User && $applicant->applicant_review_status === 'approved')
-            || ($employer instanceof User && $employer->employer_document_status === 'valid')
-        );
+        if (! $roles->has('admin')) {
+            return false;
+        }
 
-        if ($canMessagePlatformSupport) {
+        if ($applicant instanceof User) {
+            return $applicant->applicant_review_status === 'approved';
+        }
+
+        if ($employer instanceof User) {
             return true;
         }
+
+        return false;
+    }
+
+    private function canMessageForApplication(
+        User $firstUser,
+        User $secondUser,
+        JobApplication $application
+    ): bool {
+        if ($firstUser->is($secondUser)) {
+            return false;
+        }
+
+        $roles = collect([$firstUser, $secondUser])->keyBy('account_type');
+        $applicant = $roles->get('pwd_applicant');
+        $employer = $roles->get('employer');
 
         if (! ($applicant instanceof User && $employer instanceof User)) {
             return false;
         }
 
-        if ($this->documents->refreshStatus($employer) !== 'valid') {
-            return false;
-        }
+        $application->loadMissing('job');
 
-        return JobApplication::query()
-            ->where('applicant_id', $applicant->id)
-            ->whereHas('job', fn ($query) => $query->where('user_id', $employer->id))
-            ->exists();
+        return (int) $application->applicant_id === (int) $applicant->id
+            && (int) $application->job?->user_id === (int) $employer->id
+            && $applicant->applicant_review_status === 'approved';
     }
 }

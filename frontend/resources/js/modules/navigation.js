@@ -55,7 +55,12 @@ export const initNavigation = () => {
         dashboardNotificationToggle.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
-            setDashboardNotificationsOpen(dashboardNotificationToggle.getAttribute('aria-expanded') !== 'true');
+            const isOpen = dashboardNotificationToggle.getAttribute('aria-expanded') !== 'true';
+            setDashboardNotificationsOpen(isOpen);
+
+            if (isOpen) {
+                window.dispatchEvent(new CustomEvent('notifications:job-applications-cleared'));
+            }
         });
     
         document.addEventListener('click', (event) => {

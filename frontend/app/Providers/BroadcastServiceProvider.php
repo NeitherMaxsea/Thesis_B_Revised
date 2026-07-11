@@ -12,7 +12,9 @@ class BroadcastServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Broadcast::routes();
+        // Channel authorization performs the authenticated-user check and
+        // returns 403 for guests instead of redirecting an Echo request.
+        Broadcast::routes(['middleware' => ['web']]);
 
         require base_path('routes/channels.php');
     }

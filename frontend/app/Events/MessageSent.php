@@ -14,13 +14,19 @@ class MessageSent implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    public function __construct(public Message $message)
-    {
-    }
+    public function __construct(public Message $message) {}
 
     public function broadcastOn(): array
     {
-        return [new PrivateChannel("chat.conversation.{$this->message->conversation_id}")];
+        $conversation = $this->message->conversation;
+        $recipientId = (int) $conversation->first_user_id === (int) $this->message->sender_id
+            ? $conversation->second_user_id
+            : $conversation->first_user_id;
+
+        return [
+            new PrivateChannel("chat.conversation.{$this->message->conversation_id}"),
+            new PrivateChannel("App.Models.User.{$recipientId}"),
+        ];
     }
 
     public function broadcastAs(): string

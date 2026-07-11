@@ -14,7 +14,15 @@ class Message extends Model
         'conversation_id',
         'sender_id',
         'body',
+        'read_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'read_at' => 'datetime',
+        ];
+    }
 
     public function conversation(): BelongsTo
     {
@@ -24,5 +32,10 @@ class Message extends Model
     public function sender(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sender_id');
+    }
+
+    public function isRead(): bool
+    {
+        return $this->read_at !== null;
     }
 }

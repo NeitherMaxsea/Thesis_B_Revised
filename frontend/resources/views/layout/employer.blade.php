@@ -2,13 +2,17 @@
     $employerUser = auth()->user();
     $employerName = $employerUser?->company_name ?: $employerUser?->name;
     $employerInitials = collect(explode(' ', $employerName ?: 'Employer'))->filter()->take(2)->map(fn ($part) => strtoupper(substr($part, 0, 1)))->implode('');
+    $layoutUnreadMessageCount = max(0, (int) ($unreadMessageCount ?? 0));
+    $layoutJobApplications = collect($recentJobApplications ?? []);
+    $layoutJobApplicationCount = $layoutJobApplications->count();
 @endphp
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="page-entering employer-page">
+<body class="page-entering employer-page" data-auth-user-id="{{ $employerUser?->id }}" data-account-type="{{ $employerUser?->account_type }}" data-unread-message-count="{{ $layoutUnreadMessageCount }}">
     <div class="employer-shell">
         <aside class="employer-sidebar" aria-label="Employer navigation">
             <a href="{{ route('employer.dashboard') }}" class="employer-sidebar__brand">
@@ -48,8 +52,44 @@
                         <i aria-hidden="true"></i>
                         {{ $employerUser?->employer_document_status === 'valid' ? 'Documents valid' : 'Action needed' }}
                     </span>
-                    <a href="{{ route('messages.index') }}" class="dashboard-icon-button" aria-label="Messages" title="Messages">
+                    <div class="dashboard-notification-wrap">
+                        <button type="button" class="dashboard-icon-button" data-dashboard-notification-toggle aria-expanded="false" aria-controls="employer-notifications" aria-label="Notifications" title="Notifications">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.75 18a3.75 3.75 0 0 1-7.5 0M18.25 15.75H5.75l1.5-2.25V9.75a4.75 4.75 0 0 1 9.5 0v3.75l1.5 2.25Z" /></svg>
+                            <span class="dashboard-badge" data-job-application-badge data-count="{{ $layoutJobApplicationCount }}" @if ($layoutJobApplicationCount === 0) hidden @endif>{{ $layoutJobApplicationCount > 99 ? '99+' : $layoutJobApplicationCount }}</span>
+                        </button>
+                        <div id="employer-notifications" class="dashboard-notification-menu" data-dashboard-notification-menu hidden>
+                            <div class="dashboard-notification-menu__header">
+                                <strong>Notifications</strong>
+                                <span>Applications</span>
+                            </div>
+                            <div data-job-application-list>
+                                @forelse ($layoutJobApplications as $application)
+                                    @php
+                                        $notificationApplicant = data_get($application, 'applicant');
+                                        $notificationApplicantName = trim(implode(' ', array_filter([
+                                            data_get($notificationApplicant, 'first_name'),
+                                            data_get($notificationApplicant, 'last_name'),
+                                        ]))) ?: data_get($notificationApplicant, 'name', 'An applicant');
+                                        $notificationConversationId = data_get($application, 'conversation.id');
+                                        $notificationJobTitle = data_get($application, 'job.title', 'Job posting');
+                                        $notificationCreatedAt = data_get($application, 'created_at');
+                                    @endphp
+                                    <a href="{{ route('messages.index', $notificationConversationId ? ['conversation' => $notificationConversationId] : []) }}" class="dashboard-notification-item" data-job-application-id="{{ data_get($application, 'id') }}">
+                                        <span class="dashboard-notification-dot" aria-hidden="true"></span>
+                                        <span>
+                                            <strong>{{ $notificationApplicantName }} applied</strong>
+                                            <small>{{ $notificationJobTitle }}@if ($notificationCreatedAt) · {{ $notificationCreatedAt->diffForHumans() }}@endif</small>
+                                        </span>
+                                    </a>
+                                @empty
+                                    <p class="dashboard-notification-empty" data-job-application-empty>No new job applications.</p>
+                                @endforelse
+                            </div>
+                        </div>
+                    </div>
+                    <a href="{{ route('messages.index') }}" class="dashboard-icon-button" data-messages-link aria-label="Messages" title="Messages">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.75 6.75A2.25 2.25 0 0 1 7 4.5h10A2.25 2.25 0 0 1 19.25 6.75v6.5A2.25 2.25 0 0 1 17 15.5H9.25L5 19.25v-12.5Z" /></svg>
+                        <span class="dashboard-badge" data-unread-message-badge @if ($layoutUnreadMessageCount === 0) hidden @endif>{{ $layoutUnreadMessageCount > 99 ? '99+' : $layoutUnreadMessageCount }}</span>
                     </a>
                     <div class="dashboard-profile-menu" data-dashboard-profile-menu>
                         <button type="button" class="dashboard-profile-menu__toggle" data-dashboard-profile-toggle aria-expanded="false" aria-controls="employer-profile-options">

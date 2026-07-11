@@ -8,13 +8,17 @@
     $dashboardProfileRoute = $isEmployerDashboard ? route('employer.profile') : route('applicant.profile');
     $dashboardHomeLabel = $isEmployerDashboard ? 'Employer Hub' : 'Applicant Dashboard';
     $dashboardPrimaryLabel = $isEmployerDashboard ? 'Job Postings' : 'Job Matching';
+    $layoutUnreadMessageCount = max(0, (int) ($unreadMessageCount ?? 0));
+    $layoutJobApplications = collect($recentJobApplications ?? []);
+    $layoutJobApplicationCount = $layoutJobApplications->count();
 @endphp
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="page-entering bg-gray-100">
+<body class="page-entering bg-gray-100" data-auth-user-id="{{ $dashboardUser?->id }}" data-account-type="{{ $dashboardUser?->account_type }}" data-unread-message-count="{{ $layoutUnreadMessageCount }}" data-activity-url="{{ route('activity') }}">
     <noscript>
         <style>
             .page-entering .dashboard-navbar,
@@ -37,10 +41,11 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h5A1.5 1.5 0 0 1 16 5.5V7M3 12h18M10 12v2h4v-2" /></svg>
                 <span>{{ $dashboardPrimaryLabel }}</span>
             </a>
-            <a href="{{ route('messages.index') }}" class="dashboard-icon-button" aria-label="Messages" title="Messages">
+            <a href="{{ route('messages.index') }}" class="dashboard-icon-button" data-messages-link aria-label="Messages" title="Messages">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4.75 6.75A2.25 2.25 0 0 1 7 4.5h10A2.25 2.25 0 0 1 19.25 6.75v6.5A2.25 2.25 0 0 1 17 15.5H9.25L5 19.25v-12.5Z" />
                 </svg>
+                <span class="dashboard-badge" data-unread-message-badge @if ($layoutUnreadMessageCount === 0) hidden @endif>{{ $layoutUnreadMessageCount > 99 ? '99+' : $layoutUnreadMessageCount }}</span>
             </a>
 
             <div class="dashboard-notification-wrap">
@@ -48,35 +53,56 @@
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 18a3.75 3.75 0 0 1-7.5 0M18.25 15.75H5.75l1.5-2.25V9.75a4.75 4.75 0 0 1 9.5 0v3.75l1.5 2.25Z" />
                     </svg>
-                    <span class="dashboard-badge">3</span>
+                    @if ($isEmployerDashboard)
+                        <span class="dashboard-badge" data-job-application-badge data-count="{{ $layoutJobApplicationCount }}" @if ($layoutJobApplicationCount === 0) hidden @endif>{{ $layoutJobApplicationCount > 99 ? '99+' : $layoutJobApplicationCount }}</span>
+                    @else
+                        <span class="dashboard-badge">3</span>
+                    @endif
                 </button>
 
                 <div id="dashboard-notifications" class="dashboard-notification-menu" data-dashboard-notification-menu hidden>
                     <div class="dashboard-notification-menu__header">
                         <strong>Notifications</strong>
-                        <span>Today</span>
+                        <span>{{ $isEmployerDashboard ? 'Applications' : 'Today' }}</span>
                     </div>
-                    <a href="#notifications" class="dashboard-notification-item">
-                        <span class="dashboard-notification-dot"></span>
-                        <span>
-                            <strong>Profile review pending</strong>
-                            <small>Your PWD ID will be checked by the team.</small>
-                        </span>
-                    </a>
-                    <a href="#notifications" class="dashboard-notification-item">
-                        <span class="dashboard-notification-dot"></span>
-                        <span>
-                            <strong>New job match</strong>
-                            <small>Customer support role matches your profile.</small>
-                        </span>
-                    </a>
-                    <a href="#notifications" class="dashboard-notification-item">
-                        <span class="dashboard-notification-dot"></span>
-                        <span>
-                            <strong>Email verified</strong>
-                            <small>Your account is ready for applicant tools.</small>
-                        </span>
-                    </a>
+                    @if ($isEmployerDashboard)
+                        <div data-job-application-list>
+                            @forelse ($layoutJobApplications as $application)
+                                @php
+                                    $notificationApplicant = data_get($application, 'applicant');
+                                    $notificationApplicantName = trim(implode(' ', array_filter([
+                                        data_get($notificationApplicant, 'first_name'),
+                                        data_get($notificationApplicant, 'last_name'),
+                                    ]))) ?: data_get($notificationApplicant, 'name', 'An applicant');
+                                    $notificationConversationId = data_get($application, 'conversation.id');
+                                    $notificationJobTitle = data_get($application, 'job.title', 'Job posting');
+                                    $notificationCreatedAt = data_get($application, 'created_at');
+                                @endphp
+                                <a href="{{ route('messages.index', $notificationConversationId ? ['conversation' => $notificationConversationId] : []) }}" class="dashboard-notification-item" data-job-application-id="{{ data_get($application, 'id') }}">
+                                    <span class="dashboard-notification-dot" aria-hidden="true"></span>
+                                    <span>
+                                        <strong>{{ $notificationApplicantName }} applied</strong>
+                                        <small>{{ $notificationJobTitle }}@if ($notificationCreatedAt) · {{ $notificationCreatedAt->diffForHumans() }}@endif</small>
+                                    </span>
+                                </a>
+                            @empty
+                                <p class="dashboard-notification-empty" data-job-application-empty>No new job applications.</p>
+                            @endforelse
+                        </div>
+                    @else
+                        <a href="#notifications" class="dashboard-notification-item">
+                            <span class="dashboard-notification-dot"></span>
+                            <span><strong>Profile review pending</strong><small>Your PWD ID will be checked by the team.</small></span>
+                        </a>
+                        <a href="#notifications" class="dashboard-notification-item">
+                            <span class="dashboard-notification-dot"></span>
+                            <span><strong>New job match</strong><small>Customer support role matches your profile.</small></span>
+                        </a>
+                        <a href="#notifications" class="dashboard-notification-item">
+                            <span class="dashboard-notification-dot"></span>
+                            <span><strong>Email verified</strong><small>Your account is ready for applicant tools.</small></span>
+                        </a>
+                    @endif
                 </div>
             </div>
 
