@@ -19,6 +19,12 @@ Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
     return (int) $user->id === (int) $id;
 });
 
+// Registration and verification updates contain account data, so only admins
+// may join this channel. The role check is repeated server-side on actions.
+Broadcast::channel('admin.accounts', function (User $user) {
+    return $user->account_type === 'admin';
+});
+
 // Only the two participants may subscribe to a private conversation channel.
 Broadcast::channel('chat.conversation.{conversation}', function (User $user, Conversation $conversation) {
     return $conversation->hasParticipant($user);

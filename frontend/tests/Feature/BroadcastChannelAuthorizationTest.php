@@ -91,6 +91,24 @@ class BroadcastChannelAuthorizationTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_only_admins_can_authorize_live_account_notifications(): void
+    {
+        $admin = User::factory()->create(['account_type' => 'admin']);
+        $applicant = User::factory()->create(['account_type' => 'pwd_applicant']);
+        $channel = 'private-admin.accounts';
+
+        $this
+            ->actingAs($admin)
+            ->post('/broadcasting/auth', $this->authorizationPayload($channel))
+            ->assertOk()
+            ->assertJsonStructure(['auth']);
+
+        $this
+            ->actingAs($applicant)
+            ->post('/broadcasting/auth', $this->authorizationPayload($channel))
+            ->assertForbidden();
+    }
+
     public function test_guest_cannot_authorize_a_private_channel(): void
     {
         $user = User::factory()->create();

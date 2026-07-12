@@ -11,11 +11,12 @@
     <i data-lucide="chevron-right"></i>
     <span>User Management</span>
     <i data-lucide="chevron-right"></i>
-    <strong>All User</strong>
+    <strong>{{ $initialRole === 'business' ? 'Employer List' : 'User Overview' }}</strong>
 @endsection
 
 @section('content')
-<section class="admin-users-page" data-admin-users-overview>
+<section class="admin-users-page" data-admin-users-overview data-admin-live-account-type="{{ $initialRole === 'business' ? 'employer' : ($initialRole === 'applicant' ? 'pwd_applicant' : 'all') }}">
+    <p class="admin-realtime-notice" data-admin-registration-feed aria-live="polite" hidden></p>
     <div class="admin-user-filter-card" aria-label="User filters">
         <label class="admin-user-filter admin-user-filter--search">
             <span>Search</span>
@@ -61,7 +62,7 @@
                         <th scope="col">Date</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody data-admin-user-table-body>
                     @forelse ($users as $user)
                         @php
                             $role = $user->account_type === 'employer' ? 'Business' : 'Applicant';
@@ -78,7 +79,7 @@
                             $initials = Str::of($user->name)->explode(' ')->filter()->map(fn ($part) => Str::substr($part, 0, 1))->take(2)->implode('');
                             $searchText = Str::lower("{$accountId} {$user->name} {$user->email} {$role} {$status}");
                         @endphp
-                        <tr data-admin-user-row data-search="{{ $searchText }}" data-role="{{ $roleKey }}" data-status="{{ $status }}">
+                        <tr data-admin-user-row data-admin-account-id="{{ $user->id }}" data-search="{{ $searchText }}" data-role="{{ $roleKey }}" data-status="{{ $status }}">
                             <td class="admin-user-id">{{ $accountId }}</td>
                             <td>
                                 <div class="admin-user-identity">
@@ -91,7 +92,7 @@
                             <td>{{ $user->created_at?->format('M d, Y') ?? '—' }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="5" class="admin-user-table-empty">No user accounts found.</td></tr>
+                        <tr data-admin-user-empty><td colspan="5" class="admin-user-table-empty">No user accounts found.</td></tr>
                     @endforelse
                 </tbody>
             </table>

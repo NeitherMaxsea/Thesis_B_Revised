@@ -18,7 +18,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="page-entering bg-gray-100" data-auth-user-id="{{ $dashboardUser?->id }}" data-account-type="{{ $dashboardUser?->account_type }}" data-unread-message-count="{{ $layoutUnreadMessageCount }}" data-activity-url="{{ route('activity') }}">
+<body class="bg-gray-100" data-auth-user-id="{{ $dashboardUser?->id }}" data-account-type="{{ $dashboardUser?->account_type }}" data-unread-message-count="{{ $layoutUnreadMessageCount }}" data-activity-url="{{ route('activity') }}" data-inbox-updates-url="{{ route('messages.inbox-updates') }}" data-inbox-message-cursor="{{ max(0, (int) ($inboxMessageCursor ?? 0)) }}">
     <noscript>
         <style>
             .page-entering .dashboard-navbar,

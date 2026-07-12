@@ -1,3 +1,27 @@
+# PWD Job Employment Assistance Platform
+
+## Local real-time chat
+
+Chat messages and seen receipts need the Reverb WebSocket server as well as
+Laravel and the Vite asset build. Start these in separate terminals:
+
+```powershell
+php artisan serve
+npm run dev
+npm run reverb
+```
+
+The chat header reports **Live updates are on** after both accounts subscribe.
+If applicant and employer use separate devices on the same LAN, open the app
+through the host computer's LAN address, keep `VITE_REVERB_HOST` blank, and add
+that exact origin to `REVERB_ALLOWED_ORIGINS`. Rebuild the front-end after any
+change to a `VITE_*` setting.
+
+For production, supervise `php artisan reverb:start` and use the public WSS
+host in `VITE_REVERB_HOST`; see `HOSTINGER_DEPLOYMENT.md`.
+
+---
+
 <p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
 <p align="center">

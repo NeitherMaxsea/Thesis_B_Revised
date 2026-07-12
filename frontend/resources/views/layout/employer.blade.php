@@ -12,7 +12,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="page-entering employer-page" data-auth-user-id="{{ $employerUser?->id }}" data-account-type="{{ $employerUser?->account_type }}" data-unread-message-count="{{ $layoutUnreadMessageCount }}">
+<body class="employer-page" data-auth-user-id="{{ $employerUser?->id }}" data-account-type="{{ $employerUser?->account_type }}" data-unread-message-count="{{ $layoutUnreadMessageCount }}" data-inbox-updates-url="{{ route('messages.inbox-updates') }}" data-inbox-message-cursor="{{ max(0, (int) ($inboxMessageCursor ?? 0)) }}">
     <div class="employer-shell">
         <aside class="employer-sidebar" aria-label="Employer navigation">
             <a href="{{ route('employer.dashboard') }}" class="employer-sidebar__brand">

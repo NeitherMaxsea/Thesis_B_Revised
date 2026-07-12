@@ -2,11 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\AccountRegistered;
+use App\Events\AccountReviewUpdated;
 use App\Models\User;
+use App\Notifications\AccountApprovedNotification;
+use App\Notifications\AccountRejectedNotification;
+use App\Services\RealtimeService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Illuminate\Validation\Rule;
@@ -290,10 +296,12 @@ class AdminController extends Controller
             'now' => now()->toIso8601String(),
             'new_count' => $newCount,
             'notifications' => $notifications,
+            'pending_verifications' => AccountRegistered::pendingVerificationCount(),
+            'counts' => AccountRegistered::accountCounts(),
         ]);
     }
 
-    public function approve(User $user): RedirectResponse
+    public function approve(Request $request, User $user): JsonResponse|RedirectResponse
     {
         $this->ensureAdmin();
         $this->ensureApplicant($user);
@@ -305,10 +313,27 @@ class AdminController extends Controller
             'applicant_reviewed_at' => now(),
         ])->save();
 
-        return back()->with('status', "{$user->name} has been approved.");
+        $emailSent = $this->sendReviewNotification($user, new AccountApprovedNotification($user));
+        app(RealtimeService::class)->broadcast(new AccountReviewUpdated($user));
+
+        $message = "{$user->name} has been approved.";
+        $warning = $emailSent ? null : 'The account was approved, but the approval email could not be delivered.';
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'warning' => $warning,
+                'account' => AccountRegistered::accountPayload($user),
+                'pending_verifications' => AccountRegistered::pendingVerificationCount(),
+            ]);
+        }
+
+        return back()
+            ->with('status', $message)
+            ->when($warning, fn ($redirect) => $redirect->with('warning', $warning));
     }
 
-    public function decline(Request $request, User $user): RedirectResponse
+    public function decline(Request $request, User $user): JsonResponse|RedirectResponse
     {
         $this->ensureAdmin();
         $this->ensureApplicant($user);
@@ -326,7 +351,48 @@ class AdminController extends Controller
             'applicant_reviewed_at' => now(),
         ])->save();
 
-        return back()->with('status', "{$user->name} has been declined.");
+        $emailSent = $this->sendReviewNotification(
+            $user,
+            new AccountRejectedNotification($user, $validated['applicant_review_notes']),
+        );
+        app(RealtimeService::class)->broadcast(new AccountReviewUpdated($user));
+
+        $message = "{$user->name} has been declined.";
+        $warning = $emailSent ? null : 'The account was rejected, but the rejection email could not be delivered.';
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'warning' => $warning,
+                'account' => AccountRegistered::accountPayload($user),
+                'pending_verifications' => AccountRegistered::pendingVerificationCount(),
+            ]);
+        }
+
+        return back()
+            ->with('status', $message)
+            ->when($warning, fn ($redirect) => $redirect->with('warning', $warning));
+    }
+
+    /**
+     * Keep an approved/rejected decision durable even if the mail provider is
+     * temporarily unavailable; admins receive a clear warning in that case.
+     */
+    private function sendReviewNotification(User $user, object $notification): bool
+    {
+        try {
+            $user->notify($notification);
+
+            return true;
+        } catch (\Throwable $exception) {
+            report($exception);
+            Log::warning('Account review email could not be delivered.', [
+                'account_id' => $user->id,
+                'notification' => $notification::class,
+            ]);
+
+            return false;
+        }
     }
 
     private function ensureAdmin(): void

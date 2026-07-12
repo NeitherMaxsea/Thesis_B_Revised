@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Events\MessagesRead;
 use App\Models\Conversation;
+use App\Models\ConversationSetting;
 use App\Models\EmployerDocument;
 use App\Models\Job;
 use App\Models\JobApplication;
@@ -13,6 +14,9 @@ use App\Services\ChatService;
 use App\Services\EmployerDocumentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 class RealtimeChatTest extends TestCase
@@ -106,6 +110,297 @@ class RealtimeChatTest extends TestCase
             ->assertJsonPath('unread_message_count', 0);
 
         Event::assertDispatchedTimes(MessagesRead::class, 1);
+    }
+
+    public function test_participant_can_poll_for_new_messages_and_seen_receipts_when_reverb_is_unavailable(): void
+    {
+        $applicant = $this->createApprovedApplicant();
+        $employer = $this->createVerifiedEmployer();
+        [, , $conversation] = $this->createApplicationConversation(
+            $applicant,
+            $employer,
+            'Accessible Office Assistant'
+        );
+        $knownMessage = $conversation->messages()->create([
+            'sender_id' => $applicant->id,
+            'body' => 'I am interested in this position.',
+            'read_at' => now(),
+        ]);
+        $newMessage = $conversation->messages()->create([
+            'sender_id' => $employer->id,
+            'body' => 'Thank you. Please share your available interview times.',
+        ]);
+
+        $this
+            ->actingAs($applicant)
+            ->getJson(route('messages.updates', [
+                'conversation' => $conversation,
+                'after' => $knownMessage->id,
+            ]))
+            ->assertOk()
+            ->assertJsonCount(1, 'messages')
+            ->assertJsonPath('messages.0.id', $newMessage->id)
+            ->assertJsonPath('messages.0.body', $newMessage->body)
+            ->assertJsonPath('read_receipts.0.id', $knownMessage->id);
+    }
+
+    public function test_participant_can_share_typing_state_with_the_other_chat_participant(): void
+    {
+        Cache::flush();
+
+        $applicant = $this->createApprovedApplicant();
+        $employer = $this->createVerifiedEmployer();
+        [, , $conversation] = $this->createApplicationConversation(
+            $applicant,
+            $employer,
+            'Inclusive Receptionist'
+        );
+
+        $this
+            ->actingAs($employer)
+            ->postJson(route('messages.typing', $conversation))
+            ->assertNoContent();
+
+        $this
+            ->actingAs($applicant)
+            ->getJson(route('messages.updates', $conversation))
+            ->assertOk()
+            ->assertJsonPath('typing.user_id', $employer->id)
+            ->assertJsonPath('typing.is_typing', true);
+
+        Cache::flush();
+    }
+
+    public function test_participant_can_archive_a_conversation_without_hiding_it_for_the_other_participant(): void
+    {
+        $applicant = $this->createApprovedApplicant();
+        $employer = $this->createVerifiedEmployer();
+        [, , $conversation] = $this->createApplicationConversation(
+            $applicant,
+            $employer,
+            'Archive-safe Customer Support'
+        );
+
+        $this
+            ->actingAs($applicant)
+            ->postJson(route('messages.archive', $conversation))
+            ->assertOk()
+            ->assertJsonPath('archived', true);
+
+        $this->assertNotNull(ConversationSetting::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', $applicant->id)
+            ->value('archived_at'));
+        $this->assertFalse(app(ChatService::class)
+            ->conversationsFor($applicant)
+            ->contains('id', $conversation->id));
+        $this->assertTrue(app(ChatService::class)
+            ->conversationsFor($employer)
+            ->contains('id', $conversation->id));
+
+        app(ChatService::class)->send($employer, $conversation, 'A new message restores the archived chat.');
+
+        $this->assertTrue(app(ChatService::class)
+            ->conversationsFor($applicant)
+            ->contains('id', $conversation->id));
+    }
+
+    public function test_deleted_conversations_stay_deleted_and_start_again_creates_a_clean_thread(): void
+    {
+        $applicant = $this->createApprovedApplicant();
+        $employer = $this->createVerifiedEmployer();
+        [, , $conversation] = $this->createApplicationConversation(
+            $applicant,
+            $employer,
+            'Delete-safe Customer Support'
+        );
+
+        $this
+            ->actingAs($applicant)
+            ->deleteJson(route('messages.delete', $conversation))
+            ->assertOk()
+            ->assertJsonPath('deleted', true);
+
+        $this->assertNotNull(ConversationSetting::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', $applicant->id)
+            ->value('deleted_at'));
+        $this->assertFalse(app(ChatService::class)
+            ->conversationsFor($applicant)
+            ->contains('id', $conversation->id));
+        $this->assertTrue(app(ChatService::class)
+            ->conversationsFor($employer)
+            ->contains('id', $conversation->id));
+
+        app(ChatService::class)->send($employer, $conversation, 'This must not restore the deleted history.');
+
+        $this->assertFalse(app(ChatService::class)
+            ->conversationsFor($applicant)
+            ->contains('id', $conversation->id));
+
+        $this
+            ->actingAs($applicant)
+            ->post(route('messages.conversations.store'), ['recipient_id' => $employer->id])
+            ->assertRedirect();
+
+        $newConversation = Conversation::query()
+            ->forParticipant($applicant->id)
+            ->forParticipant($employer->id)
+            ->where('id', '!=', $conversation->id)
+            ->where(fn ($query) => $query
+                ->where('context_key', 'direct')
+                ->orWhere('context_key', 'like', 'direct:%'))
+            ->latest('id')
+            ->firstOrFail();
+
+        $this->assertSame(0, $newConversation->messages()->count());
+        $this->assertTrue(app(ChatService::class)
+            ->conversationsFor($applicant)
+            ->contains('id', $newConversation->id));
+    }
+
+    public function test_recipient_can_poll_the_inbox_and_receive_a_new_conversation_without_refreshing(): void
+    {
+        $applicant = $this->createApprovedApplicant();
+        $employer = $this->createVerifiedEmployer();
+        [, , $conversation] = $this->createApplicationConversation(
+            $applicant,
+            $employer,
+            'Live Conversation Updates'
+        );
+        $previousMessageId = (int) (Message::max('id') ?? 0);
+        $message = $conversation->messages()->create([
+            'sender_id' => $employer->id,
+            'body' => 'This should appear in the inbox right away.',
+        ]);
+
+        $this
+            ->actingAs($applicant)
+            ->getJson(route('messages.inbox-updates', ['after' => $previousMessageId]))
+            ->assertOk()
+            ->assertJsonPath('messages.0.id', $message->id)
+            ->assertJsonPath('messages.0.conversation_id', $conversation->id)
+            ->assertJsonPath('messages.0.sender.account_type', 'employer')
+            ->assertJsonPath('next_after', $message->id);
+    }
+
+    public function test_participant_can_mute_and_unmute_a_conversation(): void
+    {
+        $applicant = $this->createApprovedApplicant();
+        $employer = $this->createVerifiedEmployer();
+        [, , $conversation] = $this->createApplicationConversation(
+            $applicant,
+            $employer,
+            'Quiet Communications Assistant'
+        );
+
+        $this
+            ->actingAs($applicant)
+            ->patchJson(route('messages.mute', $conversation), ['duration' => '1h'])
+            ->assertOk()
+            ->assertJsonPath('muted_until', fn ($value) => is_string($value) && $value !== '');
+
+        $this->assertNotNull(ConversationSetting::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', $applicant->id)
+            ->value('muted_until'));
+
+        $this
+            ->actingAs($applicant)
+            ->patchJson(route('messages.mute', $conversation), ['duration' => 'off'])
+            ->assertOk()
+            ->assertJsonPath('muted_until', null);
+    }
+
+    public function test_participant_can_toggle_an_allowed_message_reaction(): void
+    {
+        $applicant = $this->createApprovedApplicant();
+        $employer = $this->createVerifiedEmployer();
+        [, , $conversation] = $this->createApplicationConversation(
+            $applicant,
+            $employer,
+            'Accessible Data Entry'
+        );
+        $message = $conversation->messages()->create([
+            'sender_id' => $employer->id,
+            'body' => 'Thank you for applying.',
+        ]);
+
+        $this
+            ->actingAs($applicant)
+            ->postJson(route('messages.reactions', [
+                'conversation' => $conversation,
+                'message' => $message,
+            ]), ['emoji' => '👍'])
+            ->assertOk()
+            ->assertJsonPath('message_id', $message->id)
+            ->assertJsonPath('reactions.0.emoji', '👍')
+            ->assertJsonPath('reactions.0.count', 1)
+            ->assertJsonPath('reactions.0.user_ids.0', $applicant->id);
+
+        $this
+            ->actingAs($applicant)
+            ->postJson(route('messages.reactions', [
+                'conversation' => $conversation,
+                'message' => $message,
+            ]), ['emoji' => '❤️'])
+            ->assertOk()
+            ->assertJsonPath('reactions.0.emoji', '❤️')
+            ->assertJsonPath('reactions.0.count', 1);
+
+        $this->assertSame(1, $message->reactions()->count());
+
+        $this
+            ->actingAs($applicant)
+            ->postJson(route('messages.reactions', [
+                'conversation' => $conversation,
+                'message' => $message,
+            ]), ['emoji' => '❤️'])
+            ->assertOk()
+            ->assertJsonCount(0, 'reactions');
+    }
+
+    public function test_participant_can_send_a_private_image_attachment_with_an_optional_caption(): void
+    {
+        Storage::fake('local');
+
+        $applicant = $this->createApprovedApplicant();
+        $employer = $this->createVerifiedEmployer();
+        [, , $conversation] = $this->createApplicationConversation(
+            $applicant,
+            $employer,
+            'Accessible Media Assistant'
+        );
+        $attachment = UploadedFile::fake()->create('portfolio.png', 120, 'image/png');
+
+        $response = $this
+            ->actingAs($applicant)
+            ->post(route('messages.store', $conversation), [
+                'body' => 'Here is my sample portfolio image.',
+                'attachment' => $attachment,
+            ], [
+                'Accept' => 'application/json',
+                'X-Requested-With' => 'XMLHttpRequest',
+            ]);
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('message.body', 'Here is my sample portfolio image.')
+            ->assertJsonPath('message.attachment.mime', 'image/png')
+            ->assertJsonPath('message.attachment.name', 'portfolio.png');
+
+        $message = Message::query()->latest('id')->firstOrFail();
+        $this->assertNotNull($message->attachment_path);
+        Storage::disk('local')->assertExists($message->attachment_path);
+
+        $this
+            ->actingAs($employer)
+            ->get(route('messages.attachment', [
+                'conversation' => $conversation,
+                'message' => $message,
+            ]))
+            ->assertOk()
+            ->assertHeader('content-type', 'image/png');
     }
 
     public function test_loading_a_conversation_leaves_read_writes_to_the_csrf_protected_endpoint(): void

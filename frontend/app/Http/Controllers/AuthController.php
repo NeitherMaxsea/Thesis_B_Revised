@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\AccountRegistered;
 use App\Models\User;
 use App\Models\EmployerDocument;
-use App\Services\EmployerDocumentService;
+use App\Services\RealtimeService;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -147,8 +148,8 @@ class AuthController extends Controller
         }
 
         if ($user->account_type === 'employer') {
-            app(EmployerDocumentService::class)->refreshStatus($user);
-
+            // The destination dashboard refreshes document status once while it
+            // loads. Avoid the same database work twice during login.
             return redirect()->intended(route('employer.dashboard'));
         }
 
@@ -276,6 +277,11 @@ class AuthController extends Controller
         foreach ($employerDocuments as $document) {
             EmployerDocument::create($document + ['user_id' => $user->id]);
         }
+
+        // Notify admin workspaces only after the account and all of its
+        // submitted verification files have been stored successfully.
+        app(RealtimeService::class)->broadcast(new AccountRegistered($user));
+
         $delivery = $this->sendVerificationEmail($user);
 
         return redirect()
@@ -443,6 +449,6 @@ class AuthController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect('/');
+        return redirect()->route('login');
     }
 }

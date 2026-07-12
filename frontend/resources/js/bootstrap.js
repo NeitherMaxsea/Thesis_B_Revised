@@ -28,6 +28,12 @@ if (csrfToken) {
 // that cannot run a persistent Reverb process.
 const broadcaster = import.meta.env.VITE_BROADCASTER
     ?? (import.meta.env.VITE_REVERB_APP_KEY ? 'reverb' : '');
+const echoAuth = {
+    headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        ...(csrfToken ? { 'X-CSRF-TOKEN': csrfToken } : {}),
+    },
+};
 
 if (broadcaster === 'pusher' && import.meta.env.VITE_PUSHER_APP_KEY) {
     window.Pusher = Pusher;
@@ -52,13 +58,19 @@ if (broadcaster === 'pusher' && import.meta.env.VITE_PUSHER_APP_KEY) {
     window.Echo = new Echo(pusherOptions);
 } else if (broadcaster === 'reverb' && import.meta.env.VITE_REVERB_APP_KEY) {
     window.Pusher = Pusher;
+    // An empty VITE_REVERB_HOST follows the host open in the browser. This
+    // lets applicant and employer devices share one local Reverb server.
+    const reverbHost = import.meta.env.VITE_REVERB_HOST || window.location.hostname;
+
     window.Echo = new Echo({
         broadcaster: 'reverb',
         key: import.meta.env.VITE_REVERB_APP_KEY,
-        wsHost: import.meta.env.VITE_REVERB_HOST ?? window.location.hostname,
+        wsHost: reverbHost,
         wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
         wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
         forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
         enabledTransports: ['ws', 'wss'],
+        authEndpoint: '/broadcasting/auth',
+        auth: echoAuth,
     });
 }

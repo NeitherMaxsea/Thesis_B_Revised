@@ -36,6 +36,10 @@ export const initRealtimeInbox = ({ showSweetToast } = {}) => {
     const processedMessageIds = new Set();
     const processedApplicationIds = new Set();
     let unreadMessageCount = Math.max(0, Number(body.dataset.unreadMessageCount) || 0);
+    const inboxUpdatesUrl = body.dataset.inboxUpdatesUrl;
+    let inboxMessageCursor = Math.max(0, Number(body.dataset.inboxMessageCursor) || 0);
+    let inboxSyncInFlight = false;
+    let isInitialInboxSync = inboxMessageCursor === 0;
     let liveApplicationCount = Math.max(
         0,
         Number(document.querySelector('[data-job-application-badge]')?.dataset.count) || 0,
@@ -113,32 +117,81 @@ export const initRealtimeInbox = ({ showSweetToast } = {}) => {
         updateApplicationBadges();
     });
 
+    const handleIncomingMessage = (message, { initialSync = false } = {}) => {
+        if (
+            !message?.id
+            || Number(message.sender?.id) === currentUserId
+            || !rememberId(processedMessageIds, message.id)
+        ) {
+            return;
+        }
+
+        inboxMessageCursor = Math.max(inboxMessageCursor, Number(message.id) || 0);
+
+        const activeChat = document.querySelector('[data-applicant-chat]');
+        const isActiveConversation = activeChat?.dataset.conversationId === String(message.conversation_id);
+        const incrementUnread = !initialSync
+            && !(isActiveConversation && document.visibilityState !== 'hidden');
+
+        if (incrementUnread) {
+            unreadMessageCount += 1;
+            updateUnreadMessageBadges();
+        }
+
+        window.dispatchEvent(new CustomEvent('chat:inbox-message', {
+            detail: { message, incrementUnread },
+        }));
+    };
+
+    const syncInboxUpdates = async () => {
+        if (
+            !inboxUpdatesUrl
+            || inboxSyncInFlight
+            || document.visibilityState === 'hidden'
+        ) {
+            return;
+        }
+
+        inboxSyncInFlight = true;
+
+        try {
+            const response = await window.axios.get(inboxUpdatesUrl, {
+                params: { after: inboxMessageCursor },
+                headers: { Accept: 'application/json' },
+            });
+            const initialSync = isInitialInboxSync;
+
+            response.data?.messages?.forEach((message) => {
+                handleIncomingMessage(message, { initialSync });
+            });
+            inboxMessageCursor = Math.max(
+                inboxMessageCursor,
+                Number(response.data?.next_after) || 0,
+            );
+            isInitialInboxSync = false;
+        } catch {
+            // Reverb continues to deliver immediately when available; the next
+            // short poll retries automatically when it is not.
+        } finally {
+            inboxSyncInFlight = false;
+        }
+    };
+
+    syncInboxUpdates();
+    window.setInterval(syncInboxUpdates, 1500);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'hidden') {
+            syncInboxUpdates();
+        }
+    });
+
     if (!window.Echo) {
         return;
     }
 
     window.Echo.private(`App.Models.User.${currentUserId}`)
         .listen('.message.sent', ({ message }) => {
-            if (
-                !message?.id
-                || Number(message.sender?.id) === currentUserId
-                || !rememberId(processedMessageIds, message.id)
-            ) {
-                return;
-            }
-
-            const activeChat = document.querySelector('[data-applicant-chat]');
-            const isActiveConversation = activeChat?.dataset.conversationId === String(message.conversation_id);
-            const incrementUnread = !(isActiveConversation && document.visibilityState !== 'hidden');
-
-            if (incrementUnread) {
-                unreadMessageCount += 1;
-                updateUnreadMessageBadges();
-            }
-
-            window.dispatchEvent(new CustomEvent('chat:inbox-message', {
-                detail: { message, incrementUnread },
-            }));
+            handleIncomingMessage(message);
         })
         .listen('.job-application.submitted', ({ application }) => {
             if (

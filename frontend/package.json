@@ -3,7 +3,9 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "build": "vite build"
+        "build": "vite build",
+        "reverb": "php artisan reverb:start --host=0.0.0.0 --port=8080",
+        "reverd": "npm run reverb"
     },
     "devDependencies": {
         "@fontsource/inter": "^5.2.8",

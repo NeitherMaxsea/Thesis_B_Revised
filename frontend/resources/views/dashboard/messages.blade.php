@@ -7,6 +7,8 @@
     $messagingDescription = $isEmployer
         ? 'Message applicants after they apply, or contact platform support securely.'
         : 'Message platform support and employers after you apply for a job.';
+    $selectedSettings = $selectedConversation?->settings->first();
+    $reactionEmojis = ['👍', '❤️', '😊'];
 @endphp
 
 @section('content')
@@ -18,6 +20,13 @@
         data-conversation-id="{{ $selectedConversation->id }}"
         data-send-url="{{ route('messages.store', $selectedConversation) }}"
         data-mark-read-url="{{ route('messages.read', $selectedConversation) }}"
+        data-updates-url="{{ route('messages.updates', $selectedConversation) }}"
+        data-typing-url="{{ route('messages.typing', $selectedConversation) }}"
+        data-archive-url="{{ route('messages.archive', $selectedConversation) }}"
+        data-delete-url="{{ route('messages.delete', $selectedConversation) }}"
+        data-mute-url="{{ route('messages.mute', $selectedConversation) }}"
+        data-reaction-url-template="{{ route('messages.reactions', ['conversation' => $selectedConversation, 'message' => '__message__']) }}"
+        data-messages-index-url="{{ route('messages.index') }}"
     @endif
     aria-labelledby="applicant-chat-title"
 >
@@ -44,6 +53,10 @@
                         @php
                             $contact = $conversation->otherParticipant($user);
                             $lastMessage = $conversation->latestMessage;
+                            $lastMessagePreview = $lastMessage?->body
+                                ?: ($lastMessage?->attachment_mime
+                                    ? (str_starts_with($lastMessage->attachment_mime, 'image/') ? 'Photo' : 'Video')
+                                    : 'Start a secure conversation');
                             $isActive = $selectedConversation?->is($conversation);
                             $unreadCount = (int) ($conversation->unread_count ?? 0);
                         @endphp
@@ -54,14 +67,15 @@
                                 data-chat-contact
                                 data-conversation-id="{{ $conversation->id }}"
                                 data-unread-count="{{ $unreadCount }}"
-                                data-chat-search-text="{{ strtolower($chatService->displayName($contact).' '.($lastMessage?->body ?? '')) }}"
+                                data-chat-last-message-id="{{ $lastMessage?->id ?? 0 }}"
+                                data-chat-search-text="{{ strtolower($chatService->displayName($contact).' '.$lastMessagePreview) }}"
                                 @if ($isActive) aria-current="page" @endif
                             >
                                 <span class="applicant-chat__avatar" aria-hidden="true">{{ $chatService->initials($contact) }}</span>
                                 <span class="applicant-chat__contact-copy">
                                     <strong data-chat-contact-name>{{ $chatService->displayName($contact) }}</strong>
                                     <small data-chat-contact-context>{{ $contact->account_type === 'admin' ? 'Platform Support' : ($contact->account_type === 'employer' ? 'Employer' : 'PWD Applicant') }}</small>
-                                    <em data-chat-contact-preview>{{ $lastMessage?->body ?: 'Start a secure conversation' }}</em>
+                                    <em data-chat-contact-preview>{{ $lastMessagePreview }}</em>
                                 </span>
                                 <span class="applicant-chat__contact-meta">
                                     <time data-chat-contact-time @if ($lastMessage?->created_at) datetime="{{ $lastMessage->created_at->toIso8601String() }}" @else hidden @endif>{{ $lastMessage?->created_at ? ($lastMessage->created_at->isToday() ? $lastMessage->created_at->format('g:i A') : $lastMessage->created_at->format('M j')) : '' }}</time>
@@ -128,11 +142,36 @@
                             data-last-seen-at="{{ $selectedContact->last_seen_at?->toIso8601String() }}"
                             data-chat-presence-url="{{ route('messages.presence', $selectedConversation) }}"
                         >Offline</small>
+                        <small class="applicant-chat__typing" data-chat-typing role="status" aria-live="polite" aria-label="The other participant is typing" hidden>
+                            <span class="applicant-chat__typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                            <span class="sr-only">Typing</span>
+                        </small>
                     </span>
                     <span class="applicant-chat__secure-label">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>
                         Private
                     </span>
+                    <details class="applicant-chat__actions">
+                        <summary aria-label="Conversation options">•••</summary>
+                        <div class="applicant-chat__actions-menu">
+                            <strong>Notifications</strong>
+                            <button type="button" data-chat-mute-duration="15m">Mute for 15 minutes</button>
+                            <button type="button" data-chat-mute-duration="1h">Mute for 1 hour</button>
+                            <button type="button" data-chat-mute-duration="8h">Mute for 8 hours</button>
+                            <button type="button" data-chat-mute-duration="forever">Mute until turned on</button>
+                            <button type="button" data-chat-mute-duration="off">Turn notifications on</button>
+                            <small data-chat-settings-status>
+                                @if ($selectedSettings?->muted_until?->isFuture())
+                                    Notifications muted
+                                @else
+                                    Notifications on
+                                @endif
+                            </small>
+                            <hr>
+                            <button type="button" class="is-danger" data-chat-archive>Archive Conversation</button>
+                            <button type="button" class="is-danger" data-chat-delete>Delete Conversation</button>
+                        </div>
+                    </details>
                 </header>
 
                 <div class="applicant-chat__messages" data-chat-messages aria-live="polite" aria-label="Conversation messages">
@@ -144,7 +183,10 @@
                         </div>
                     @else
                         @foreach ($selectedConversation->messages as $message)
-                            @php($isMine = $message->sender_id === $user->id)
+                            @php
+                                $isMine = $message->sender_id === $user->id;
+                                $reactionsByEmoji = collect($chatService->messageReactionsPayload($message))->keyBy('emoji');
+                            @endphp
                             <div class="applicant-chat__message {{ $isMine ? 'is-mine' : '' }}" data-message-id="{{ $message->id }}" data-message-sender-id="{{ $message->sender_id }}">
                                 @unless ($isMine)
                                     <span class="applicant-chat__message-avatar" aria-hidden="true">{{ $chatService->initials($message->sender) }}</span>
@@ -153,11 +195,34 @@
                                     @unless ($isMine)
                                         <strong>{{ $chatService->displayName($message->sender) }}</strong>
                                     @endunless
-                                    <p>{{ $message->body }}</p>
+                                    @if ($message->attachment_path)
+                                        <div class="applicant-chat__message-media">
+                                            @if (str_starts_with((string) $message->attachment_mime, 'image/'))
+                                                <img src="{{ route('messages.attachment', ['conversation' => $selectedConversation, 'message' => $message]) }}" alt="{{ $message->attachment_name ?: 'Attached image' }}" loading="lazy">
+                                            @else
+                                                <video controls preload="metadata">
+                                                    <source src="{{ route('messages.attachment', ['conversation' => $selectedConversation, 'message' => $message]) }}" type="{{ $message->attachment_mime }}">
+                                                    Your browser cannot play this video.
+                                                </video>
+                                            @endif
+                                            <small>{{ $message->attachment_name }}</small>
+                                        </div>
+                                    @endif
+                                    @if (filled($message->body))
+                                        <p>{{ $message->body }}</p>
+                                    @endif
                                     <time data-chat-message-time datetime="{{ $message->created_at->toIso8601String() }}">{{ $message->created_at->format('g:i A') }}</time>
                                     @if ($isMine)
                                         <span class="applicant-chat__message-status" data-message-status data-read-at="{{ $message->read_at?->toIso8601String() }}">{{ $message->read_at ? 'Seen' : 'Sent' }}</span>
                                     @endif
+                                    <div class="applicant-chat__message-reactions" data-message-reactions @if ($reactionsByEmoji->isEmpty()) hidden @endif>
+                                        @foreach ($reactionsByEmoji as $reaction)
+                                            <span class="applicant-chat__reaction-chip {{ in_array($user->id, $reaction['user_ids'], true) ? 'is-active' : '' }}">
+                                                <span>{{ $reaction['emoji'] }}</span>
+                                                <b>{{ $reaction['count'] }}</b>
+                                            </span>
+                                        @endforeach
+                                    </div>
                                 </div>
                             </div>
                         @endforeach
@@ -167,7 +232,12 @@
                 <form class="applicant-chat__composer" data-chat-send-form novalidate>
                     @csrf
                     <label class="sr-only" for="chat-message-body">Message {{ $chatService->displayName($selectedContact) }}</label>
-                    <textarea id="chat-message-body" name="body" rows="1" maxlength="2000" data-chat-message-input placeholder="Write a message..." required></textarea>
+                    <label class="applicant-chat__attach-button" title="Attach image or video">
+                        <span class="sr-only">Attach image or video</span>
+                        <input type="file" name="attachment" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" data-chat-attachment-input>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.4 11.6-8.7 8.7a6 6 0 0 1-8.5-8.5l9.4-9.4a4.1 4.1 0 0 1 5.8 5.8L10 17.6a2.2 2.2 0 0 1-3.1-3.1l8.7-8.7" /></svg>
+                    </label>
+                    <textarea id="chat-message-body" name="body" rows="1" maxlength="2000" data-chat-message-input placeholder="Write a message..."></textarea>
                     <button type="submit" data-chat-send-button aria-label="Send message">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 3-8.5 18-3.4-7.1L2 10.5 21 3Z" /><path d="m9.1 13.9 4.3-4.3" /></svg>
                         <span>Send</span>

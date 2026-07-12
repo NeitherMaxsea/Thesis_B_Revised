@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class StoreMessageRequest extends FormRequest
 {
@@ -30,16 +31,31 @@ class StoreMessageRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'body' => ['bail', 'required', 'string', 'max:2000', 'regex:/\S/u'],
+            'body' => ['nullable', 'string', 'max:2000'],
+            'attachment' => [
+                'nullable',
+                'file',
+                'mimetypes:image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime',
+                'max:25600',
+            ],
         ];
+    }
+
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            if (blank($this->input('body')) && ! $this->hasFile('attachment')) {
+                $validator->errors()->add('body', 'Please write a message or attach an image or video.');
+            }
+        }];
     }
 
     public function messages(): array
     {
         return [
-            'body.required' => 'Please write a message first.',
             'body.max' => 'Messages may not be longer than 2,000 characters.',
-            'body.regex' => 'A message cannot be empty.',
+            'attachment.mimetypes' => 'Attachments must be JPG, PNG, WEBP, GIF, MP4, WEBM, or MOV files.',
+            'attachment.max' => 'Attachments may not be larger than 25 MB.',
         ];
     }
 }

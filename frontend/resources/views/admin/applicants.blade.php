@@ -9,18 +9,24 @@
 @endsection
 
 @section('content')
-<section class="admin-applicant-page" data-admin-applicant-list>
+<section class="admin-applicant-page" data-admin-applicant-list data-admin-live-account-type="pwd_applicant">
     @if (session('status'))
         <div class="admin-create-alert" role="status">{{ session('status') }}</div>
     @endif
+
+    @if (session('warning'))
+        <div class="admin-create-alert admin-create-alert--warning" role="alert">{{ session('warning') }}</div>
+    @endif
+
+    <p class="admin-realtime-notice" data-admin-registration-feed aria-live="polite" hidden></p>
 
     <div class="admin-applicant-toolbar"><button type="button"><i data-lucide="list-filter"></i>Select Applicants</button></div>
 
     <div class="admin-applicant-table-card">
         <div class="admin-applicant-table-scroll">
             <table class="admin-applicant-table">
-                <thead><tr><th>Applicant</th><th>Contact</th><th>Disability</th><th>Age</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
-                <tbody>
+                <thead><tr><th>Applicant</th><th>Contact</th><th>Disability</th><th>Age</th><th>Status</th><th>Date</th><th>Action</th></tr></thead>
+                <tbody data-admin-applicant-table-body>
                     @forelse ($applicants as $applicant)
                         @php
                             $status = match ($applicant->applicant_review_status) { 'approved' => 'Approved', 'declined' => 'Rejected', default => 'Pending' };
@@ -28,14 +34,27 @@
                             $initials = Str::of($applicant->name)->explode(' ')->filter()->map(fn ($part) => Str::substr($part, 0, 1))->take(2)->implode('');
                             $accountId = 'PWD-'.str_pad((string) $applicant->id, 6, '0', STR_PAD_LEFT);
                         @endphp
-                        <tr data-admin-applicant-row tabindex="0" aria-label="Open {{ $applicant->name }} details">
+                        <tr data-admin-applicant-row data-admin-account-id="{{ $applicant->id }}" tabindex="0" aria-label="Open {{ $applicant->name }} details">
                             <td><div class="admin-applicant-identity"><span>{{ Str::upper($initials ?: 'AU') }}</span><div><strong>{{ $applicant->name }}</strong><small>{{ $applicant->email }}</small></div></div></td>
                             <td>{{ $applicant->contact_number ?: 'Not set' }}</td><td>{{ $applicant->disability ?: 'Not set' }}</td><td>{{ $applicant->age ?: 'Not set' }}</td>
                             <td><span class="admin-applicant-status admin-applicant-status--{{ $statusClass }}">{{ $status }}</span></td><td>{{ $applicant->created_at?->format('M d, Y') ?? '—' }}</td>
-                            <td><button type="button" class="admin-applicant-view" data-admin-applicant-open data-name="{{ $applicant->name }}" data-email="{{ $applicant->email }}" data-contact="{{ $applicant->contact_number ?: 'Not set' }}" data-disability="{{ $applicant->disability ?: 'Not set' }}" data-age="{{ $applicant->age ?: 'Not set' }}" data-birthdate="{{ $applicant->birthdate?->format('Y-m-d') ?? '' }}" data-address="{{ $applicant->street_address ?: 'Not set' }}" data-status="{{ $status }}" data-account-id="{{ $accountId }}" data-pwd-id="{{ $applicant->pwd_id_path ? 'Uploaded' : 'Not set' }}" data-pwd-id-url="{{ $applicant->pwd_id_path ? route('admin.applicants.pwd-id', $applicant) : '' }}" data-created="{{ $applicant->created_at?->format('M d, Y · g:i A') ?? 'Not set' }}" data-initials="{{ Str::upper($initials ?: 'AU') }}" data-update-url="{{ route('admin.applicants.update', $applicant) }}" aria-label="View {{ $applicant->name }}"><i data-lucide="eye"></i></button></td>
+                            <td>
+                                <div class="admin-applicant-actions" data-admin-account-actions>
+                                    <button type="button" class="admin-applicant-view" data-admin-applicant-open data-name="{{ $applicant->name }}" data-email="{{ $applicant->email }}" data-contact="{{ $applicant->contact_number ?: 'Not set' }}" data-disability="{{ $applicant->disability ?: 'Not set' }}" data-age="{{ $applicant->age ?: 'Not set' }}" data-birthdate="{{ $applicant->birthdate?->format('Y-m-d') ?? '' }}" data-address="{{ $applicant->street_address ?: 'Not set' }}" data-status="{{ $status }}" data-account-id="{{ $accountId }}" data-pwd-id="{{ $applicant->pwd_id_path ? 'Uploaded' : 'Not set' }}" data-pwd-id-url="{{ $applicant->pwd_id_path ? route('admin.applicants.pwd-id', $applicant) : '' }}" data-created="{{ $applicant->created_at?->format('M d, Y · g:i A') ?? 'Not set' }}" data-initials="{{ Str::upper($initials ?: 'AU') }}" data-update-url="{{ route('admin.applicants.update', $applicant) }}" aria-label="View {{ $applicant->name }}"><i data-lucide="eye"></i></button>
+                                    @if ($applicant->applicant_review_status === 'pending')
+                                        <form method="POST" action="{{ route('admin.applicants.approve', $applicant) }}" data-admin-account-approve-form data-account-name="{{ $applicant->name }}">
+                                            @csrf
+                                            <button type="submit" class="admin-account-action admin-account-action--approve">Approve</button>
+                                        </form>
+                                        <button type="button" class="admin-account-action admin-account-action--reject" data-admin-account-reject data-reject-url="{{ route('admin.applicants.decline', $applicant) }}" data-account-name="{{ $applicant->name }}">Reject</button>
+                                    @else
+                                        <span class="admin-account-action-complete">Reviewed</span>
+                                    @endif
+                                </div>
+                            </td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="admin-applicant-empty">No applicant accounts found.</td></tr>
+                        <tr data-admin-applicant-empty><td colspan="7" class="admin-applicant-empty">No applicant accounts found.</td></tr>
                     @endforelse
                 </tbody>
             </table>

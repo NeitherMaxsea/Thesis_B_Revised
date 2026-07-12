@@ -1,4 +1,8 @@
+import Swal from 'sweetalert2';
+
 let chatPresenceTimer;
+let chatUpdatesTimer;
+let chatReactionPicker;
 
 // Secure one-to-one chat. Laravel persists messages first; Echo only mirrors the
 // persisted payload into the existing interface.
@@ -15,6 +19,13 @@ export const initApplicantChat = () => {
     const conversationId = chat.dataset.conversationId;
     const sendUrl = chat.dataset.sendUrl;
     const markReadUrl = chat.dataset.markReadUrl;
+    const updatesUrl = chat.dataset.updatesUrl;
+    const typingUrl = chat.dataset.typingUrl;
+    const archiveUrl = chat.dataset.archiveUrl;
+    const deleteUrl = chat.dataset.deleteUrl;
+    const muteUrl = chat.dataset.muteUrl;
+    const reactionUrlTemplate = chat.dataset.reactionUrlTemplate;
+    const messagesIndexUrl = chat.dataset.messagesIndexUrl;
     const messages = chat.querySelector('[data-chat-messages]');
     const liveStatus = chat.querySelector('[data-chat-live-status]');
     const composerStatus = chat.querySelector('[data-chat-composer-status]');
@@ -24,6 +35,7 @@ export const initApplicantChat = () => {
     const conversationLoader = chat.querySelector('[data-chat-conversation-loader]');
     const conversationLoaderMessage = chat.querySelector('[data-chat-conversation-loader-message]');
     const presence = chat.querySelector('[data-chat-presence]');
+    const typing = chat.querySelector('[data-chat-typing]');
     const presenceUrl = presence?.dataset.chatPresenceUrl;
     const pendingConversationMessages = new Map();
 
@@ -42,12 +54,28 @@ export const initApplicantChat = () => {
         label.htmlFor = 'chat-message-body';
         label.textContent = 'Write a message';
 
+        const attachmentLabel = document.createElement('label');
+        attachmentLabel.className = 'applicant-chat__attach-button';
+        attachmentLabel.title = 'Attach image or video';
+        const attachmentLabelText = document.createElement('span');
+        attachmentLabelText.className = 'sr-only';
+        attachmentLabelText.textContent = 'Attach image or video';
+        const attachmentInput = document.createElement('input');
+        attachmentInput.type = 'file';
+        attachmentInput.name = 'attachment';
+        attachmentInput.accept = 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime';
+        attachmentInput.dataset.chatAttachmentInput = '';
+        const attachmentIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        attachmentIcon.setAttribute('viewBox', '0 0 24 24');
+        attachmentIcon.setAttribute('aria-hidden', 'true');
+        attachmentIcon.innerHTML = '<path d="m21.4 11.6-8.7 8.7a6 6 0 0 1-8.5-8.5l9.4-9.4a4.1 4.1 0 0 1 5.8 5.8L10 17.6a2.2 2.2 0 0 1-3.1-3.1l8.7-8.7"></path>';
+        attachmentLabel.append(attachmentLabelText, attachmentInput, attachmentIcon);
+
         const input = document.createElement('textarea');
         input.id = 'chat-message-body';
         input.name = 'body';
         input.rows = 1;
         input.maxLength = 2000;
-        input.required = true;
         input.placeholder = 'Write a message...';
         input.dataset.chatMessageInput = '';
 
@@ -62,7 +90,7 @@ export const initApplicantChat = () => {
         status.dataset.chatComposerStatus = '';
         status.setAttribute('role', 'status');
 
-        composer.append(label, input, button, status);
+        composer.append(label, attachmentLabel, input, button, status);
         conversationPanel.append(composer);
     };
 
@@ -70,12 +98,22 @@ export const initApplicantChat = () => {
 
     const form = chat.querySelector('[data-chat-send-form]');
     const input = chat.querySelector('[data-chat-message-input]');
+    const attachmentInput = chat.querySelector('[data-chat-attachment-input]');
     const sendButton = chat.querySelector('[data-chat-send-button]');
     const activeComposerStatus = chat.querySelector('[data-chat-composer-status]');
+    const settingsStatus = chat.querySelector('[data-chat-settings-status]');
+    const reactionEmojis = ['👍', '❤️', '😊'];
 
     let readInFlight = false;
     let readQueued = false;
     let conversationNavigationInProgress = false;
+    let updatesInFlight = false;
+    let typingRequestInFlight = false;
+    let lastTypingRequestAt = 0;
+    let typingClearTimer;
+    let conversationChannel;
+    let latestMessageId = Math.max(0, ...[...(messages?.querySelectorAll('[data-message-id]') ?? [])]
+        .map((message) => Number(message.dataset.messageId) || 0));
 
     const isPageVisible = () => document.visibilityState !== 'hidden';
     const getContacts = () => [...chat.querySelectorAll('[data-chat-contact]')];
@@ -99,6 +137,17 @@ export const initApplicantChat = () => {
 
         activeComposerStatus.textContent = message;
         activeComposerStatus.classList.toggle('is-error', isError);
+    };
+
+    const setSettingsStatus = (mutedUntil = '') => {
+        if (!settingsStatus) {
+            return;
+        }
+
+        const mutedDate = parseDate(mutedUntil);
+        settingsStatus.textContent = mutedDate && mutedDate > new Date()
+            ? 'Notifications muted'
+            : 'Notifications on';
     };
 
     const scrollToLatestMessage = () => {
@@ -189,6 +238,19 @@ export const initApplicantChat = () => {
         presence.dataset.lastSeenAt = lastSeenAt ?? '';
         presence.dataset.presenceState = status.state;
         presence.textContent = status.text;
+    };
+
+    const setTyping = (isTyping, senderId) => {
+        if (!typing || Number(senderId) === currentUserId) {
+            return;
+        }
+
+        window.clearTimeout(typingClearTimer);
+        typing.hidden = !isTyping;
+
+        if (isTyping) {
+            typingClearTimer = window.setTimeout(() => setTyping(false, senderId), 5500);
+        }
     };
 
     const refreshPresence = async () => {
@@ -284,6 +346,86 @@ export const initApplicantChat = () => {
         contact.dataset.chatSearchText = `${name} ${context} ${preview}`.toLowerCase();
     };
 
+    const contactContext = (accountType) => {
+        if (accountType === 'admin') {
+            return 'Platform Support';
+        }
+
+        return accountType === 'employer' ? 'Employer' : 'PWD Applicant';
+    };
+
+    const createInboxConversationContact = (message) => {
+        const targetConversationId = String(message?.conversation_id ?? '');
+
+        if (!conversationList || !targetConversationId || !message?.sender) {
+            return null;
+        }
+
+        const href = safeConversationUrl('', targetConversationId);
+
+        if (!href) {
+            return null;
+        }
+
+        conversationList.querySelector('[data-chat-empty-contacts]')?.remove();
+        ensureConversationsLabel();
+
+        const contact = document.createElement('a');
+        contact.href = href;
+        contact.className = 'applicant-chat__contact';
+        contact.dataset.chatContact = '';
+        contact.dataset.conversationId = targetConversationId;
+        contact.dataset.unreadCount = '0';
+        contact.dataset.chatLastMessageId = String(message.id ?? 0);
+
+        const avatar = document.createElement('span');
+        avatar.className = 'applicant-chat__avatar';
+        avatar.setAttribute('aria-hidden', 'true');
+        avatar.textContent = message.sender.initials ?? '';
+
+        const copy = document.createElement('span');
+        copy.className = 'applicant-chat__contact-copy';
+        const name = document.createElement('strong');
+        name.dataset.chatContactName = '';
+        name.textContent = message.sender.name ?? 'New conversation';
+        const context = document.createElement('small');
+        context.dataset.chatContactContext = '';
+        context.textContent = contactContext(message.sender.account_type);
+        const preview = document.createElement('em');
+        preview.dataset.chatContactPreview = '';
+        preview.textContent = messagePreview(message);
+        copy.append(name, context, preview);
+
+        const metadata = document.createElement('span');
+        metadata.className = 'applicant-chat__contact-meta';
+        const time = document.createElement('time');
+        time.dataset.chatContactTime = '';
+        time.dateTime = message.sent_at ?? '';
+        time.textContent = formatContactTime(message.sent_at);
+        time.hidden = !time.textContent;
+        const unread = document.createElement('span');
+        unread.className = 'applicant-chat__unread-badge';
+        unread.dataset.chatContactUnread = '';
+        unread.hidden = true;
+        unread.textContent = '0';
+        metadata.append(time, unread);
+        contact.append(avatar, copy, metadata);
+
+        conversationList.insertBefore(
+            contact,
+            conversationList.querySelector('[data-chat-start-label]') ?? null,
+        );
+        updateContactSearchText(contact);
+        moveContactToTop(contact);
+
+        getContacts()
+            .find((candidate) => candidate.dataset.recipientId === String(message.sender.id))
+            ?.closest('form')
+            ?.remove();
+
+        return contact;
+    };
+
     const syncConversationContact = (message, incrementUnread = false) => {
         const targetConversationId = String(message?.conversation_id ?? '');
 
@@ -291,25 +433,29 @@ export const initApplicantChat = () => {
             return;
         }
 
-        const contact = findConversationContact(targetConversationId);
+        let contact = findConversationContact(targetConversationId);
 
         if (!contact) {
-            const pending = pendingConversationMessages.get(targetConversationId) ?? {
-                message: null,
-                unreadCount: 0,
-            };
+            contact = createInboxConversationContact(message);
 
-            pending.message = message;
-            pending.unreadCount += incrementUnread ? 1 : 0;
-            pendingConversationMessages.set(targetConversationId, pending);
-            return;
+            if (!contact) {
+                const pending = pendingConversationMessages.get(targetConversationId) ?? {
+                    message: null,
+                    unreadCount: 0,
+                };
+
+                pending.message = message;
+                pending.unreadCount += incrementUnread ? 1 : 0;
+                pendingConversationMessages.set(targetConversationId, pending);
+                return;
+            }
         }
 
         const preview = contact.querySelector('[data-chat-contact-preview]');
         const time = contact.querySelector('[data-chat-contact-time]');
 
-        if (preview && typeof message.body === 'string') {
-            preview.textContent = message.body;
+        if (preview) {
+            preview.textContent = messagePreview(message);
         }
 
         if (time) {
@@ -318,12 +464,109 @@ export const initApplicantChat = () => {
             time.hidden = !time.textContent;
         }
 
+        contact.dataset.chatLastMessageId = String(message.id ?? 0);
+
         if (incrementUnread) {
             setContactUnread(contact, (Number(contact.dataset.unreadCount) || 0) + 1);
         }
 
         updateContactSearchText(contact);
         moveContactToTop(contact);
+    };
+
+    const updateReactionControls = (controls, reactions = []) => {
+        controls.replaceChildren();
+
+        (Array.isArray(reactions) ? reactions : []).forEach((reaction) => {
+            const count = Math.max(0, Number(reaction?.count) || 0);
+
+            if (!reaction?.emoji || count === 0) {
+                return;
+            }
+
+            const chip = document.createElement('span');
+            chip.className = 'applicant-chat__reaction-chip';
+            chip.classList.toggle(
+                'is-active',
+                Array.isArray(reaction.user_ids) && reaction.user_ids.map(Number).includes(currentUserId),
+            );
+            const emoji = document.createElement('span');
+            emoji.textContent = reaction.emoji;
+            const countElement = document.createElement('b');
+            countElement.textContent = String(count);
+            chip.append(emoji, countElement);
+            controls.append(chip);
+        });
+
+        controls.hidden = controls.childElementCount === 0;
+    };
+
+    const createReactionControls = (reactions = []) => {
+        const controls = document.createElement('div');
+        controls.className = 'applicant-chat__message-reactions';
+        controls.dataset.messageReactions = '';
+
+        updateReactionControls(controls, reactions);
+
+        return controls;
+    };
+
+    const setMessageReactions = (messageId, reactions = []) => {
+        const row = messages?.querySelector(`[data-message-id="${Number(messageId)}"]`);
+        const controls = row?.querySelector('[data-message-reactions]');
+
+        if (controls) {
+            updateReactionControls(controls, reactions);
+        }
+    };
+
+    const reactionUrl = (messageId) => reactionUrlTemplate?.replace(
+        '__message__',
+        encodeURIComponent(String(messageId)),
+    );
+
+    const messagePreview = (message) => {
+        if (typeof message?.body === 'string' && message.body.trim() !== '') {
+            return message.body;
+        }
+
+        return message?.attachment?.mime?.startsWith('image/') ? 'Photo' : 'Video';
+    };
+
+    const createAttachmentPreview = (attachment) => {
+        if (!attachment?.url || !attachment?.mime) {
+            return null;
+        }
+
+        const media = document.createElement('div');
+        media.className = 'applicant-chat__message-media';
+
+        if (attachment.mime.startsWith('image/')) {
+            const image = document.createElement('img');
+            image.src = attachment.url;
+            image.alt = attachment.name || 'Attached image';
+            image.loading = 'lazy';
+            media.append(image);
+        } else if (attachment.mime.startsWith('video/')) {
+            const video = document.createElement('video');
+            video.controls = true;
+            video.preload = 'metadata';
+            const source = document.createElement('source');
+            source.src = attachment.url;
+            source.type = attachment.mime;
+            video.append(source);
+            media.append(video);
+        } else {
+            return null;
+        }
+
+        if (attachment.name) {
+            const name = document.createElement('small');
+            name.textContent = attachment.name;
+            media.append(name);
+        }
+
+        return media;
     };
 
     const createMessage = (message) => {
@@ -360,13 +603,22 @@ export const initApplicantChat = () => {
             content.append(sender);
         }
 
+        const attachment = createAttachmentPreview(message.attachment);
         const body = document.createElement('p');
         body.textContent = message.body ?? '';
         const time = document.createElement('time');
         time.dataset.chatMessageTime = '';
         time.dateTime = message.sent_at ?? '';
         time.textContent = formatTime(message.sent_at);
-        content.append(body, time);
+        if (attachment) {
+            content.append(attachment);
+        }
+
+        if (body.textContent.trim() !== '') {
+            content.append(body);
+        }
+
+        content.append(time);
 
         if (isMine) {
             const status = document.createElement('span');
@@ -378,8 +630,11 @@ export const initApplicantChat = () => {
             content.append(status);
         }
 
+        content.append(createReactionControls(message.reactions));
+
         row.append(content);
         messages.append(row);
+        latestMessageId = Math.max(latestMessageId, Number(message.id));
         scrollToLatestMessage();
 
         return true;
@@ -458,6 +713,192 @@ export const initApplicantChat = () => {
 
         if (Number(message.sender?.id) !== currentUserId) {
             markConversationRead();
+        }
+    };
+
+    const reactToMessage = async (messageId, emoji) => {
+        const url = reactionUrl(messageId);
+
+        if (!url || !reactionEmojis.includes(emoji)) {
+            return;
+        }
+
+        try {
+            const response = await window.axios.post(url, { emoji }, {
+                headers: { Accept: 'application/json' },
+            });
+            const payload = response.data;
+            setMessageReactions(payload.message_id, payload.reactions);
+            conversationChannel?.whisper('reaction', payload);
+        } catch {
+            setComposerStatus('Reaction could not be saved. Please try again.', true);
+        }
+    };
+
+    chatReactionPicker?.remove();
+    chatReactionPicker = document.createElement('div');
+    chatReactionPicker.className = 'applicant-chat__reaction-picker';
+    chatReactionPicker.hidden = true;
+    chatReactionPicker.setAttribute('role', 'dialog');
+    chatReactionPicker.setAttribute('aria-label', 'Choose a reaction');
+    reactionEmojis.forEach((emoji) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.messageReactionPicker = '';
+        button.dataset.emoji = emoji;
+        button.setAttribute('aria-label', `React ${emoji}`);
+        button.textContent = emoji;
+        chatReactionPicker.append(button);
+    });
+    document.body.append(chatReactionPicker);
+
+    let reactionPickerMessageId = null;
+    let reactionPickerCloseTimer;
+
+    const closeReactionPicker = () => {
+        reactionPickerMessageId = null;
+        window.clearTimeout(reactionPickerCloseTimer);
+        chatReactionPicker.hidden = true;
+    };
+
+    const openReactionPicker = (messageId, target) => {
+        if (!messageId || !target) {
+            return;
+        }
+
+        reactionPickerMessageId = messageId;
+        chatReactionPicker.hidden = false;
+        const targetBounds = target.getBoundingClientRect();
+        const pickerBounds = chatReactionPicker.getBoundingClientRect();
+        const left = Math.min(
+            Math.max(8, targetBounds.left),
+            window.innerWidth - pickerBounds.width - 8,
+        );
+        const above = targetBounds.top - pickerBounds.height - 8;
+
+        chatReactionPicker.style.left = `${left}px`;
+        chatReactionPicker.style.top = `${above >= 8 ? above : targetBounds.bottom + 8}px`;
+        window.clearTimeout(reactionPickerCloseTimer);
+        reactionPickerCloseTimer = window.setTimeout(closeReactionPicker, 6000);
+    };
+
+    chatReactionPicker.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-message-reaction-picker]');
+
+        if (!button || !reactionPickerMessageId) {
+            return;
+        }
+
+        reactToMessage(reactionPickerMessageId, button.dataset.emoji);
+        closeReactionPicker();
+    });
+
+    const muteConversation = async (duration) => {
+        if (!muteUrl) {
+            return;
+        }
+
+        try {
+            const response = await window.axios.patch(muteUrl, { duration }, {
+                headers: { Accept: 'application/json' },
+            });
+            setSettingsStatus(response.data?.muted_until ?? '');
+            chat.querySelector('.applicant-chat__actions')?.removeAttribute('open');
+        } catch {
+            setSettingsStatus();
+        }
+    };
+
+    const archiveConversation = async () => {
+        if (!archiveUrl || !messagesIndexUrl || !window.confirm('Archive this conversation? New messages will restore it.')) {
+            return;
+        }
+
+        try {
+            await window.axios.post(archiveUrl, {}, {
+                headers: { Accept: 'application/json' },
+            });
+            window.Echo?.leave(`chat.conversation.${conversationId}`);
+            window.clearInterval(chatPresenceTimer);
+            window.clearInterval(chatUpdatesTimer);
+            window.location.assign(messagesIndexUrl);
+        } catch {
+            setSettingsStatus();
+        }
+    };
+
+    const deleteConversation = async () => {
+        if (!deleteUrl || !messagesIndexUrl) {
+            return;
+        }
+
+        const confirmation = await Swal.fire({
+            icon: 'warning',
+            title: 'Delete this conversation?',
+            text: 'This removes it only from your view. The other participant keeps their history.',
+            showCancelButton: true,
+            confirmButtonText: 'Delete conversation',
+            cancelButtonText: 'Cancel',
+            reverseButtons: true,
+            buttonsStyling: false,
+            customClass: {
+                popup: 'app-swal-modal',
+                title: 'app-swal-modal__title',
+                htmlContainer: 'app-swal-modal__message',
+                confirmButton: 'app-swal-modal__confirm app-swal-modal__confirm--danger',
+                cancelButton: 'app-swal-modal__cancel',
+            },
+        });
+
+        if (!confirmation.isConfirmed) {
+            return;
+        }
+
+        try {
+            await window.axios.delete(deleteUrl, {
+                headers: { Accept: 'application/json' },
+            });
+            window.Echo?.leave(`chat.conversation.${conversationId}`);
+            window.clearInterval(chatPresenceTimer);
+            window.clearInterval(chatUpdatesTimer);
+            window.location.assign(messagesIndexUrl);
+        } catch {
+            setSettingsStatus();
+        }
+    };
+
+    const syncConversationUpdates = async () => {
+        if (
+            !conversationId
+            || !updatesUrl
+            || !chat.isConnected
+            || !isPageVisible()
+            || updatesInFlight
+        ) {
+            return;
+        }
+
+        updatesInFlight = true;
+
+        try {
+            const response = await window.axios.get(updatesUrl, {
+                params: { after: latestMessageId },
+                headers: { Accept: 'application/json' },
+            });
+
+            response.data?.messages?.forEach(handleConversationMessage);
+            response.data?.read_receipts?.forEach((receipt) => {
+                setMessageSeen(receipt.id, receipt.read_at);
+            });
+            response.data?.message_reactions?.forEach(({ message_id: messageId, reactions }) => {
+                setMessageReactions(messageId, reactions);
+            });
+            setTyping(response.data?.typing?.is_typing === true, response.data?.typing?.user_id);
+        } catch {
+            // The next interval retries. Messaging remains available as soon as
+            // either Reverb or this authenticated recovery request responds.
+        } finally {
+            updatesInFlight = false;
         }
     };
 
@@ -668,6 +1109,85 @@ export const initApplicantChat = () => {
         openConversation(contact.href);
     });
 
+    chat.addEventListener('click', (event) => {
+        if (!(event.target instanceof Element)) {
+            return;
+        }
+
+        const muteButton = event.target.closest('[data-chat-mute-duration]');
+
+        if (muteButton && chat.contains(muteButton)) {
+            event.preventDefault();
+            muteConversation(muteButton.dataset.chatMuteDuration);
+            return;
+        }
+
+        const archiveButton = event.target.closest('[data-chat-archive]');
+
+        if (archiveButton && chat.contains(archiveButton)) {
+            event.preventDefault();
+            archiveConversation();
+            return;
+        }
+
+        const deleteButton = event.target.closest('[data-chat-delete]');
+
+        if (deleteButton && chat.contains(deleteButton)) {
+            event.preventDefault();
+            deleteConversation();
+        }
+    });
+
+    let longPressTimer;
+
+    const cancelLongPress = () => {
+        window.clearTimeout(longPressTimer);
+        longPressTimer = undefined;
+    };
+
+    const openMessageReactionPicker = (target) => {
+        const messageRow = target.closest('[data-message-id]');
+
+        if (!messageRow) {
+            return;
+        }
+
+        openReactionPicker(
+            messageRow.dataset.messageId,
+            messageRow.querySelector('p') ?? messageRow,
+        );
+    };
+
+    chat.addEventListener('pointerdown', (event) => {
+        if (!(event.target instanceof Element)) {
+            return;
+        }
+
+        const messageRow = event.target.closest('[data-message-id]');
+
+        if (!messageRow || (event.pointerType === 'mouse' && event.button !== 0)) {
+            closeReactionPicker();
+            return;
+        }
+
+        cancelLongPress();
+        longPressTimer = window.setTimeout(() => openMessageReactionPicker(event.target), 450);
+    });
+
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((eventName) => {
+        chat.addEventListener(eventName, cancelLongPress);
+    });
+
+    chat.addEventListener('contextmenu', (event) => {
+        if (!(event.target instanceof Element) || !event.target.closest('[data-message-id]')) {
+            return;
+        }
+
+        event.preventDefault();
+        cancelLongPress();
+        openMessageReactionPicker(event.target);
+    });
+
     chat.querySelectorAll('.applicant-chat__contact-form').forEach((startForm) => {
         startForm.addEventListener('submit', (event) => {
             event.preventDefault();
@@ -689,10 +1209,17 @@ export const initApplicantChat = () => {
 
     scrollToLatestMessage();
 
+    window.clearInterval(chatUpdatesTimer);
+
+    if (conversationId && updatesUrl) {
+        syncConversationUpdates();
+        chatUpdatesTimer = window.setInterval(syncConversationUpdates, 1200);
+    }
+
     if (conversationId && window.Echo) {
-        const channel = window.Echo.private(`chat.conversation.${conversationId}`);
-        channel.listen('.message.sent', ({ message }) => handleConversationMessage(message));
-        channel.listen('.messages.read', ({ conversation_id: readConversationId, reader_id: readerId, message_ids: messageIds, read_at: readAt }) => {
+        conversationChannel = window.Echo.private(`chat.conversation.${conversationId}`);
+        conversationChannel.listen('.message.sent', ({ message }) => handleConversationMessage(message));
+        conversationChannel.listen('.messages.read', ({ conversation_id: readConversationId, reader_id: readerId, message_ids: messageIds, read_at: readAt }) => {
             if (
                 String(readConversationId) !== String(conversationId)
                 || Number(readerId) === currentUserId
@@ -703,10 +1230,14 @@ export const initApplicantChat = () => {
 
             messageIds.forEach((messageId) => setMessageSeen(messageId, readAt));
         });
-        channel.subscribed?.(() => setLiveStatus('Live updates are on', 'ready'));
-        channel.error?.(() => setLiveStatus('Live updates are unavailable', 'error'));
+        conversationChannel.listenForWhisper('typing', ({ sender_id: senderId }) => setTyping(true, senderId));
+        conversationChannel.listenForWhisper('reaction', ({ message_id: messageId, reactions }) => {
+            setMessageReactions(messageId, reactions);
+        });
+        conversationChannel.subscribed?.(() => setLiveStatus('Live updates are on', 'ready'));
+        conversationChannel.error?.(() => setLiveStatus('Live updates are unavailable; syncing automatically', 'error'));
     } else if (conversationId) {
-        setLiveStatus('Live updates are unavailable', 'error');
+        setLiveStatus('Live updates are unavailable; syncing automatically', 'error');
     } else {
         setLiveStatus('Choose a conversation to start a chat', 'ready');
     }
@@ -715,9 +1246,10 @@ export const initApplicantChat = () => {
         event.preventDefault();
 
         const body = input?.value.trim() ?? '';
+        const attachment = attachmentInput?.files?.[0] ?? null;
 
-        if (!body || !sendUrl) {
-            setComposerStatus('Please write a message first.', true);
+        if ((!body && !attachment) || !sendUrl) {
+            setComposerStatus('Write a message or attach an image or video.', true);
             input?.focus();
             return;
         }
@@ -728,6 +1260,21 @@ export const initApplicantChat = () => {
             return;
         }
 
+        if (attachment && attachment.size > 25 * 1024 * 1024) {
+            setComposerStatus('Attachments may not be larger than 25 MB.', true);
+            return;
+        }
+
+        const payload = new FormData();
+
+        if (body) {
+            payload.append('body', body);
+        }
+
+        if (attachment) {
+            payload.append('attachment', attachment);
+        }
+
         setComposerStatus();
         if (sendButton) {
             sendButton.disabled = true;
@@ -735,7 +1282,7 @@ export const initApplicantChat = () => {
         }
 
         try {
-            const response = await window.axios.post(sendUrl, { body }, {
+            const response = await window.axios.post(sendUrl, payload, {
                 headers: { Accept: 'application/json' },
             });
             const message = response.data.message;
@@ -744,6 +1291,9 @@ export const initApplicantChat = () => {
             syncConversationContact(message);
             input.value = '';
             input.style.height = '';
+            if (attachmentInput) {
+                attachmentInput.value = '';
+            }
             setComposerStatus('Message sent.');
             input.focus();
         } catch (error) {
@@ -779,10 +1329,54 @@ export const initApplicantChat = () => {
     input?.addEventListener('input', () => {
         input.style.height = 'auto';
         input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+
+        if (!input.value.trim() || !typingUrl || typingRequestInFlight) {
+            return;
+        }
+
+        const now = Date.now();
+
+        if (now - lastTypingRequestAt < 2000) {
+            return;
+        }
+
+        lastTypingRequestAt = now;
+        typingRequestInFlight = true;
+        conversationChannel?.whisper('typing', { sender_id: currentUserId });
+
+        window.axios.post(typingUrl, {}, {
+            headers: { Accept: 'application/json' },
+        }).catch(() => {
+            // The periodic update request still clears this state safely.
+        }).finally(() => {
+            typingRequestInFlight = false;
+        });
+    });
+
+    attachmentInput?.addEventListener('change', () => {
+        const attachment = attachmentInput.files?.[0];
+
+        if (!attachment) {
+            return;
+        }
+
+        if (attachment.size > 25 * 1024 * 1024) {
+            attachmentInput.value = '';
+            setComposerStatus('Attachments may not be larger than 25 MB.', true);
+            return;
+        }
+
+        setComposerStatus(`${attachment.name} attached.`);
     });
 
     window.addEventListener('chat:inbox-message', (event) => {
         const { message, incrementUnread = false } = event.detail ?? {};
+
+        if (String(message?.conversation_id ?? '') === String(conversationId ?? '')) {
+            handleConversationMessage(message);
+            return;
+        }
+
         syncConversationContact(message, incrementUnread);
     });
 
@@ -795,6 +1389,7 @@ export const initApplicantChat = () => {
             markConversationRead();
             scrollToLatestMessage();
             refreshPresence();
+            syncConversationUpdates();
         }
     });
 

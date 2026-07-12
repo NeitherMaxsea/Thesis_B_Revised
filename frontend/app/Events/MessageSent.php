@@ -2,6 +2,7 @@
 
 namespace App\Events;
 
+use App\Models\ConversationSetting;
 use App\Models\Message;
 use App\Services\ChatService;
 use Illuminate\Broadcasting\InteractsWithSockets;
@@ -23,10 +24,18 @@ class MessageSent implements ShouldBroadcastNow
             ? $conversation->second_user_id
             : $conversation->first_user_id;
 
-        return [
-            new PrivateChannel("chat.conversation.{$this->message->conversation_id}"),
-            new PrivateChannel("App.Models.User.{$recipientId}"),
-        ];
+        $recipientDeletedConversation = ConversationSetting::query()
+            ->where('conversation_id', $this->message->conversation_id)
+            ->where('user_id', $recipientId)
+            ->whereNotNull('deleted_at')
+            ->exists();
+
+        // The sender has already rendered their own message locally. Deliver
+        // only to the recipient's personal channel, and never resurrect a
+        // conversation that recipient explicitly deleted.
+        return $recipientDeletedConversation
+            ? []
+            : [new PrivateChannel("App.Models.User.{$recipientId}")];
     }
 
     public function broadcastAs(): string

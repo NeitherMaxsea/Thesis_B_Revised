@@ -44,6 +44,11 @@ class Conversation extends Model
         return $this->hasMany(Message::class);
     }
 
+    public function settings(): HasMany
+    {
+        return $this->hasMany(ConversationSetting::class);
+    }
+
     public function job(): BelongsTo
     {
         return $this->belongsTo(Job::class);
@@ -74,6 +79,16 @@ class Conversation extends Model
             $query->where('first_user_id', $userId)
                 ->orWhere('second_user_id', $userId);
         });
+    }
+
+    public function scopeVisibleTo(Builder $query, int $userId): Builder
+    {
+        return $query->whereDoesntHave('settings', fn (Builder $settings) => $settings
+            ->where('user_id', $userId)
+            ->where(function (Builder $settings) {
+                $settings->whereNotNull('archived_at')
+                    ->orWhereNotNull('deleted_at');
+            }));
     }
 
     public function hasParticipant(User|int $user): bool

@@ -2,7 +2,7 @@
 export const initPageTransitions = () => {
     const pageLoader = document.getElementById('page-loader');
     const authPaths = new Set(['/login', '/register', '/register/verification']);
-    let navigationTimer;
+    const hasInitialEntryAnimation = document.body.classList.contains('page-entering');
     
     const normalizePath = (pathname) => {
         const normalizedPath = pathname.replace(/\/+$/, '');
@@ -69,14 +69,13 @@ export const initPageTransitions = () => {
     const markPageReady = () => {
         window.requestAnimationFrame(() => {
             document.body.classList.remove('page-entering', 'is-navigating', 'admin-route-leaving');
-            document.body.classList.add('page-is-ready');
+            document.body.classList.toggle('page-is-ready', hasInitialEntryAnimation);
             pageLoader?.classList.remove('is-visible');
             pageLoader?.setAttribute('aria-hidden', 'true');
         });
     };
     
     const showPageLoader = () => {
-        window.clearTimeout(navigationTimer);
         document.body.classList.remove('page-entering', 'page-is-ready');
         document.body.classList.add('is-navigating');
         window.requestAnimationFrame(() => {
@@ -145,9 +144,7 @@ export const initPageTransitions = () => {
                 }
 
                 showPageLoader();
-                navigationTimer = window.setTimeout(() => {
-                    window.location.assign(url.href);
-                }, 320);
+                window.location.assign(url.href);
             }
         });
     }
@@ -197,10 +194,7 @@ export const initPageTransitions = () => {
     
             event.preventDefault();
             document.body.classList.add('auth-route-leaving');
-    
-            window.setTimeout(() => {
-                window.location.assign(url.href);
-            }, 170);
+            window.location.assign(url.href);
         });
     }
     

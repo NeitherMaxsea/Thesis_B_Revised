@@ -12,7 +12,7 @@
     <title>Dashboard | PWD Employment Admin</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="admin-page admin-dashboard-page page-entering">
+<body class="admin-page admin-dashboard-page">
     <noscript>
         <style>
             .page-entering .admin-sidebar,
@@ -50,7 +50,7 @@
                         <a href="{{ route('admin.users.index') }}" class="{{ request()->routeIs('admin.users.index') ? 'is-active' : '' }}"><i data-lucide="eye"></i><span>User Overview</span></a>
                         <a href="{{ route('admin.users.create') }}" class="{{ request()->routeIs('admin.users.create') ? 'is-active' : '' }}"><i data-lucide="user-round-plus"></i><span>Create User</span></a>
                         <a href="{{ route('admin.applicants.index') }}" class="{{ request()->routeIs('admin.applicants.index') ? 'is-active' : '' }}"><i data-lucide="list"></i><span>Applicant List</span></a>
-                        <a href="{{ route('admin.users.index', ['role' => 'business']) }}"><i data-lucide="building-2"></i><span>Business List</span></a>
+                        <a href="{{ route('admin.users.index', ['role' => 'business']) }}"><i data-lucide="building-2"></i><span>Employer List</span></a>
                         <a href="#pending-reviews"><i data-lucide="shield-check"></i><span>RBAC</span></a>
                         <a href="#pending-reviews"><i data-lucide="history"></i><span>Delete User History</span></a>
                     </div>

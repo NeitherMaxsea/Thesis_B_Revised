@@ -3,7 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Notifications\AccountApprovedNotification;
+use App\Notifications\AccountRejectedNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -13,6 +16,8 @@ class AdminApplicantReviewTest extends TestCase
 
     public function test_authenticated_admin_can_approve_a_pwd_applicant(): void
     {
+        Notification::fake();
+
         $admin = User::factory()->create([
             'account_type' => 'admin',
         ]);
@@ -35,10 +40,17 @@ class AdminApplicantReviewTest extends TestCase
         $this->assertSame('approved', $applicant->applicant_review_status);
         $this->assertNull($applicant->applicant_review_notes);
         $this->assertNotNull($applicant->applicant_reviewed_at);
+        Notification::assertSentTo($applicant, AccountApprovedNotification::class, function (AccountApprovedNotification $notification) use ($applicant): bool {
+            $mail = $notification->toMail($applicant);
+
+            return $mail->actionText === 'Login' && $mail->actionUrl === route('login');
+        });
     }
 
     public function test_authenticated_admin_can_reject_a_pwd_applicant_with_a_reason(): void
     {
+        Notification::fake();
+
         $admin = User::factory()->create([
             'account_type' => 'admin',
         ]);
@@ -64,6 +76,23 @@ class AdminApplicantReviewTest extends TestCase
         $this->assertSame('declined', $applicant->applicant_review_status);
         $this->assertSame($reason, $applicant->applicant_review_notes);
         $this->assertNotNull($applicant->applicant_reviewed_at);
+        Notification::assertSentTo($applicant, AccountRejectedNotification::class);
+    }
+
+    public function test_admin_applicant_list_shows_approve_and_reject_actions_for_pending_accounts(): void
+    {
+        $admin = User::factory()->create(['account_type' => 'admin']);
+        User::factory()->create([
+            'account_type' => 'pwd_applicant',
+            'applicant_review_status' => 'pending',
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.applicants.index'))
+            ->assertOk()
+            ->assertSeeText('Action')
+            ->assertSeeText('Approve')
+            ->assertSeeText('Reject');
     }
 
     public function test_non_admin_cannot_approve_another_applicant(): void

@@ -46,7 +46,7 @@
 @endphp
 
 @section('content')
-<div id="admin-dashboard" class="admin-dashboard" aria-label="Administration dashboard">
+<div id="admin-dashboard" class="admin-dashboard" data-admin-live-account-type="all" aria-label="Administration dashboard">
     @if (session('status'))
         <div class="admin-dashboard-alert" role="status">{{ session('status') }}</div>
     @endif
@@ -57,6 +57,8 @@
         </div>
     @endif
 
+    <p class="admin-realtime-notice" data-admin-registration-feed aria-live="polite" hidden></p>
+
     <section class="admin-metric-grid" aria-label="Account summary">
         @foreach ($metricCards as $card)
             <article class="admin-metric-card admin-metric-card--{{ $card['tone'] }}">
@@ -64,7 +66,7 @@
                     <span>{{ $card['label'] }}</span>
                     <span class="admin-metric-card__icon" aria-hidden="true"><i data-lucide="{{ $card['icon'] }}"></i></span>
                 </div>
-                <strong>{{ $card['value'] }}</strong>
+                <strong data-admin-dashboard-metric="{{ Str::lower($card['label']) }}" @if ($card['label'] === 'Pending') data-admin-pending-count @endif>{{ $card['value'] }}</strong>
                 <small>{{ $card['note'] }}</small>
             </article>
         @endforeach

@@ -212,6 +212,10 @@ Route::post('/messages/conversations', [ChatController::class, 'start'])
     ->middleware(['auth', 'verified'])
     ->name('messages.conversations.store');
 
+Route::get('/messages/inbox-updates', [ChatController::class, 'inboxUpdates'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.inbox-updates');
+
 Route::post('/messages/{conversation}', [ChatController::class, 'store'])
     ->middleware(['auth', 'verified'])
     ->name('messages.store');
@@ -223,6 +227,34 @@ Route::patch('/messages/{conversation}/read', [ChatController::class, 'markRead'
 Route::get('/messages/{conversation}/presence', [ChatController::class, 'presence'])
     ->middleware(['auth', 'verified'])
     ->name('messages.presence');
+
+Route::get('/messages/{conversation}/messages/{message}/attachment', [ChatController::class, 'attachment'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.attachment');
+
+Route::get('/messages/{conversation}/updates', [ChatController::class, 'updates'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.updates');
+
+Route::post('/messages/{conversation}/typing', [ChatController::class, 'typing'])
+    ->middleware(['auth', 'verified', 'throttle:90,1'])
+    ->name('messages.typing');
+
+Route::post('/messages/{conversation}/archive', [ChatController::class, 'archive'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.archive');
+
+Route::delete('/messages/{conversation}', [ChatController::class, 'deleteForUser'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.delete');
+
+Route::patch('/messages/{conversation}/mute', [ChatController::class, 'mute'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.mute');
+
+Route::post('/messages/{conversation}/messages/{message}/reactions', [ChatController::class, 'react'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.reactions');
 
 Route::post('/activity', function (Request $request) {
     $request->user()?->forceFill(['last_seen_at' => now()])->save();

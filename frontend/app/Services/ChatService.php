@@ -3,11 +3,13 @@
 namespace App\Services;
 
 use App\Models\Conversation;
+use App\Models\ConversationSetting;
 use App\Models\Job;
 use App\Models\JobApplication;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -29,11 +31,13 @@ class ChatService
 
         return Conversation::query()
             ->forParticipant($user->id)
+            ->visibleTo($user->id)
             ->with([
                 'firstParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
                 'secondParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
                 'latestMessage.sender:id,name,first_name,last_name,company_name,account_type',
                 'latestJobApplication.job:id,user_id,title',
+                'settings' => fn ($query) => $query->where('user_id', $user->id),
             ])
             ->withCount([
                 'messages as unread_count' => fn ($query) => $query
@@ -116,11 +120,12 @@ class ChatService
             'firstParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
             'secondParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
             'latestJobApplication.job:id,user_id,title',
+            'settings' => fn ($query) => $query->where('user_id', $user->id),
         ];
 
         if ($withMessages) {
             $relations['messages'] = fn ($query) => $query
-                ->with('sender:id,name,first_name,last_name,company_name,account_type')
+                ->with(['sender:id,name,first_name,last_name,company_name,account_type', 'reactions'])
                 ->oldest();
         }
 
@@ -133,15 +138,48 @@ class ChatService
     public function openConversation(User $user, User $contact): Conversation
     {
         $this->ensureMessagingAccess($user);
-        abort_unless($this->canMessagePlatformSupport($user, $contact), 403);
+        abort_unless($this->canStartDirectConversation($user, $contact), 403);
 
         [$firstUserId, $secondUserId] = $this->participantIds($user, $contact);
 
-        return Conversation::firstOrCreate([
-            'first_user_id' => $firstUserId,
-            'second_user_id' => $secondUserId,
-            'context_key' => 'direct',
-        ]);
+        // An archived direct conversation can be restored. A deleted one is
+        // deliberately excluded so starting again opens an empty new thread.
+        $conversation = Conversation::query()
+            ->forParticipant($firstUserId)
+            ->forParticipant($secondUserId)
+            ->where(fn ($query) => $query
+                ->where('context_key', 'direct')
+                ->orWhere('context_key', 'like', 'direct:%'))
+            ->whereDoesntHave('settings', fn ($settings) => $settings
+                ->where('user_id', $user->id)
+                ->whereNotNull('deleted_at'))
+            ->orderByDesc('last_message_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $conversation instanceof Conversation) {
+            $hasPreviousDirectConversation = Conversation::query()
+                ->forParticipant($firstUserId)
+                ->forParticipant($secondUserId)
+                ->where(fn ($query) => $query
+                    ->where('context_key', 'direct')
+                    ->orWhere('context_key', 'like', 'direct:%'))
+                ->exists();
+
+            $conversation = Conversation::create([
+                'first_user_id' => $firstUserId,
+                'second_user_id' => $secondUserId,
+                // Keep the original key for existing installations, then use a
+                // unique generation for every fresh conversation after delete.
+                'context_key' => $hasPreviousDirectConversation
+                    ? 'direct:'.Str::uuid()
+                    : 'direct',
+            ]);
+        }
+
+        $this->unarchiveFor($user, $conversation);
+
+        return $conversation;
     }
 
     /**
@@ -205,19 +243,34 @@ class ChatService
                 && $this->canMessageForApplication($user, $recipient, $application);
         }
 
-        return $conversation->context_key === 'direct'
-            && $this->canMessagePlatformSupport($user, $recipient);
+        return $this->isDirectConversation($conversation)
+            && $this->canStartDirectConversation($user, $recipient);
     }
 
-    public function send(User $sender, Conversation $conversation, string $body): Message
+    public function send(User $sender, Conversation $conversation, string $body, ?UploadedFile $attachment = null): Message
     {
         $conversation = $this->findConversationFor($sender, $conversation);
         abort_unless($this->canSendInConversation($sender, $conversation), 403);
 
         $body = trim((string) preg_replace('/[^\S\r\n]+/u', ' ', $body));
-        abort_if(! preg_match('/\S/u', $body), 422, 'A message cannot be empty.');
+        $hasAttachment = $attachment instanceof UploadedFile && $attachment->isValid();
+        abort_if(! preg_match('/\S/u', $body) && ! $hasAttachment, 422, 'A message cannot be empty.');
+        $attachmentData = null;
 
-        return DB::transaction(function () use ($sender, $conversation, $body) {
+        if ($hasAttachment) {
+            $attachmentName = Str::of($attachment->getClientOriginalName())
+                ->replace(["\r", "\n", '"'], '')
+                ->limit(180, '')
+                ->toString();
+            $attachmentData = [
+                'attachment_path' => $attachment->store("chat-attachments/{$conversation->id}", 'local'),
+                'attachment_mime' => $attachment->getMimeType() ?: 'application/octet-stream',
+                'attachment_name' => $attachmentName !== '' ? $attachmentName : 'attachment',
+                'attachment_size' => (int) ($attachment->getSize() ?: 0),
+            ];
+        }
+
+        return DB::transaction(function () use ($sender, $conversation, $body, $attachmentData) {
             /** @var Conversation $lockedConversation */
             $lockedConversation = Conversation::query()
                 ->lockForUpdate()
@@ -226,11 +279,15 @@ class ChatService
             $message = $lockedConversation->messages()->create([
                 'sender_id' => $sender->id,
                 'body' => $body,
-            ]);
+            ] + ($attachmentData ?? []));
 
             $lockedConversation->forceFill(['last_message_at' => $message->created_at])->save();
+            ConversationSetting::query()
+                ->where('conversation_id', $lockedConversation->id)
+                ->whereNotNull('archived_at')
+                ->update(['archived_at' => null]);
 
-            return $message->load('sender:id,name,first_name,last_name,company_name,account_type');
+            return $message->load(['sender:id,name,first_name,last_name,company_name,account_type', 'reactions']);
         });
     }
 
@@ -278,9 +335,18 @@ class ChatService
         return $this->unreadCount($user);
     }
 
+    public function inboxMessageCursor(User $user): int
+    {
+        return max(0, (int) Message::query()
+            ->whereHas('conversation', fn ($query) => $query
+                ->forParticipant($user->id)
+                ->visibleTo($user->id))
+            ->max('id'));
+    }
+
     public function messagePayload(Message $message): array
     {
-        $message->loadMissing('sender:id,name,first_name,last_name,company_name,account_type');
+        $message->loadMissing(['sender:id,name,first_name,last_name,company_name,account_type', 'reactions']);
 
         return [
             'id' => $message->id,
@@ -293,8 +359,36 @@ class ChatService
                 'id' => $message->sender->id,
                 'name' => $this->displayName($message->sender),
                 'initials' => $this->initials($message->sender),
+                'account_type' => $message->sender->account_type,
             ],
+            'reactions' => $this->messageReactionsPayload($message),
+            'attachment' => $message->attachment_path ? [
+                'url' => route('messages.attachment', [
+                    'conversation' => $message->conversation_id,
+                    'message' => $message->id,
+                ]),
+                'mime' => $message->attachment_mime,
+                'name' => $message->attachment_name,
+                'size' => (int) $message->attachment_size,
+            ] : null,
         ];
+    }
+
+    /** @return array<int, array{emoji:string,count:int,user_ids:array<int,int>}> */
+    public function messageReactionsPayload(Message $message): array
+    {
+        $message->loadMissing('reactions');
+
+        return $message->reactions
+            ->groupBy('emoji')
+            ->sortKeys()
+            ->map(fn ($reactions, string $emoji) => [
+                'emoji' => $emoji,
+                'count' => $reactions->count(),
+                'user_ids' => $reactions->pluck('user_id')->map(fn ($id) => (int) $id)->values()->all(),
+            ])
+            ->values()
+            ->all();
     }
 
     public function displayName(User $user): string
@@ -351,6 +445,47 @@ class ChatService
         }
 
         return false;
+    }
+
+    private function canStartDirectConversation(User $firstUser, User $secondUser): bool
+    {
+        return $this->canMessagePlatformSupport($firstUser, $secondUser)
+            || $this->canMessageThroughSharedApplication($firstUser, $secondUser);
+    }
+
+    private function canMessageThroughSharedApplication(User $firstUser, User $secondUser): bool
+    {
+        if ($firstUser->is($secondUser)) {
+            return false;
+        }
+
+        $roles = collect([$firstUser, $secondUser])->keyBy('account_type');
+        $applicant = $roles->get('pwd_applicant');
+        $employer = $roles->get('employer');
+
+        if (! ($applicant instanceof User && $employer instanceof User)) {
+            return false;
+        }
+
+        return $applicant->applicant_review_status === 'approved'
+            && JobApplication::query()
+                ->where('applicant_id', $applicant->id)
+                ->whereHas('job', fn ($query) => $query->where('user_id', $employer->id))
+                ->exists();
+    }
+
+    private function isDirectConversation(Conversation $conversation): bool
+    {
+        return $conversation->context_key === 'direct'
+            || str_starts_with((string) $conversation->context_key, 'direct:');
+    }
+
+    private function unarchiveFor(User $user, Conversation $conversation): void
+    {
+        ConversationSetting::query()->updateOrCreate(
+            ['conversation_id' => $conversation->id, 'user_id' => $user->id],
+            ['archived_at' => null]
+        );
     }
 
     private function canMessageForApplication(
