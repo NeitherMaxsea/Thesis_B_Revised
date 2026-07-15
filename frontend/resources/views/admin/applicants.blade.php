@@ -25,7 +25,7 @@
     <div class="admin-applicant-table-card">
         <div class="admin-applicant-table-scroll">
             <table class="admin-applicant-table">
-                <thead><tr><th>Applicant</th><th>Contact</th><th>Disability</th><th>Age</th><th>Status</th><th>Date</th><th>Action</th></tr></thead>
+                <thead><tr><th>Applicant</th><th>Contact</th><th>General Disability Category</th><th>Age</th><th>Status</th><th>Date</th><th>Action</th></tr></thead>
                 <tbody data-admin-applicant-table-body>
                     @forelse ($applicants as $applicant)
                         @php
@@ -35,7 +35,7 @@
                             $accountId = 'PWD-'.str_pad((string) $applicant->id, 6, '0', STR_PAD_LEFT);
                         @endphp
                         <tr data-admin-applicant-row data-admin-account-id="{{ $applicant->id }}" tabindex="0" aria-label="Open {{ $applicant->name }} details">
-                            <td><div class="admin-applicant-identity"><span>{{ Str::upper($initials ?: 'AU') }}</span><div><strong>{{ $applicant->name }}</strong><small>{{ $applicant->email }}</small></div></div></td>
+                            <td><div class="admin-applicant-identity"><span class="{{ $applicant->profile_photo_url ? 'has-image' : '' }}" data-admin-account-avatar>@if ($applicant->profile_photo_url)<img src="{{ $applicant->profile_photo_url }}" alt="">@else{{ Str::upper($initials ?: 'AU') }}@endif</span><div><strong>{{ $applicant->name }}</strong><small>{{ $applicant->email }}</small></div></div></td>
                             <td>{{ $applicant->contact_number ?: 'Not set' }}</td><td>{{ $applicant->disability ?: 'Not set' }}</td><td>{{ $applicant->age ?: 'Not set' }}</td>
                             <td><span class="admin-applicant-status admin-applicant-status--{{ $statusClass }}">{{ $status }}</span></td><td>{{ $applicant->created_at?->format('M d, Y') ?? '—' }}</td>
                             <td>
@@ -67,8 +67,8 @@
             <header><strong data-admin-applicant-detail="name" id="admin-applicant-drawer-name">Applicant</strong><button type="button" data-admin-applicant-close aria-label="Close details"><i data-lucide="x"></i></button></header>
             <div data-admin-applicant-view-content>
                 <section class="admin-applicant-drawer__identity"><span data-admin-applicant-detail="initials">AU</span><div><strong data-admin-applicant-detail="name">Applicant</strong><small data-admin-applicant-detail="email"></small><p><b data-admin-applicant-detail="status"></b><i data-admin-applicant-detail="account-id"></i></p></div></section>
-                <section class="admin-applicant-drawer__facts"><div><span>Status</span><strong data-admin-applicant-detail="status"></strong></div><div><span>Disability</span><strong data-admin-applicant-detail="disability"></strong></div><div><span>PWD ID</span><strong data-admin-applicant-detail="pwd-id"></strong><a href="#" data-admin-applicant-document target="_blank" rel="noopener" hidden>Open secure document</a></div><div><span>Created</span><strong data-admin-applicant-detail="created"></strong></div></section>
-                <section class="admin-applicant-drawer__section"><h2>Applicant Profile</h2><p>Main applicant information saved on the account.</p><dl><div><dt>Name</dt><dd data-admin-applicant-detail="name"></dd></div><div><dt>Contact</dt><dd data-admin-applicant-detail="contact"></dd></div><div><dt>Disability</dt><dd data-admin-applicant-detail="disability"></dd></div><div><dt>Birth Date</dt><dd data-admin-applicant-detail="birthdate"></dd></div><div><dt>Age</dt><dd data-admin-applicant-detail="age"></dd></div><div><dt>Address</dt><dd data-admin-applicant-detail="address"></dd></div></dl></section>
+                <section class="admin-applicant-drawer__facts"><div><span>Status</span><strong data-admin-applicant-detail="status"></strong></div><div><span>General Disability Category</span><strong data-admin-applicant-detail="disability"></strong></div><div><span>PWD ID</span><strong data-admin-applicant-detail="pwd-id"></strong><a href="#" data-admin-applicant-document target="_blank" rel="noopener" hidden>Open secure document</a></div><div><span>Created</span><strong data-admin-applicant-detail="created"></strong></div></section>
+                <section class="admin-applicant-drawer__section"><h2>Applicant Profile</h2><p>Main applicant information saved on the account.</p><dl><div><dt>Name</dt><dd data-admin-applicant-detail="name"></dd></div><div><dt>Contact</dt><dd data-admin-applicant-detail="contact"></dd></div><div><dt>General Disability Category</dt><dd data-admin-applicant-detail="disability"></dd></div><div><dt>Birth Date</dt><dd data-admin-applicant-detail="birthdate"></dd></div><div><dt>Age</dt><dd data-admin-applicant-detail="age"></dd></div><div><dt>Address</dt><dd data-admin-applicant-detail="address"></dd></div></dl></section>
                 <section class="admin-applicant-drawer__section"><h2>Account Details</h2><p>Admin-facing identity and review information.</p><dl><div><dt>Email</dt><dd data-admin-applicant-detail="email"></dd></div><div><dt>Account ID</dt><dd data-admin-applicant-detail="account-id"></dd></div><div><dt>Status</dt><dd data-admin-applicant-detail="status"></dd></div><div><dt>Created</dt><dd data-admin-applicant-detail="created"></dd></div></dl></section>
             </div>
             <form id="admin-applicant-edit-form" class="admin-applicant-edit-form" data-admin-applicant-edit-form hidden novalidate>

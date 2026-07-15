@@ -33,9 +33,9 @@ class ChatService
             ->forParticipant($user->id)
             ->visibleTo($user->id)
             ->with([
-                'firstParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
-                'secondParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
-                'latestMessage.sender:id,name,first_name,last_name,company_name,account_type',
+                'firstParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at,profile_photo_path',
+                'secondParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at,profile_photo_path',
+                'latestMessage.sender:id,name,first_name,last_name,company_name,account_type,profile_photo_path',
                 'latestJobApplication.job:id,user_id,title',
                 'settings' => fn ($query) => $query->where('user_id', $user->id),
             ])
@@ -53,7 +53,7 @@ class ChatService
     {
         $this->ensureMessagingAccess($user);
 
-        $columns = ['id', 'name', 'first_name', 'last_name', 'company_name', 'account_type'];
+        $columns = ['id', 'name', 'first_name', 'last_name', 'company_name', 'account_type', 'profile_photo_path'];
 
         if ($user->account_type === 'admin') {
             return User::query()
@@ -117,15 +117,15 @@ class ChatService
         abort_unless($conversation->hasParticipant($user), 403);
 
         $relations = [
-            'firstParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
-            'secondParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at',
+            'firstParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at,profile_photo_path',
+            'secondParticipant:id,name,first_name,last_name,company_name,account_type,applicant_review_status,employer_document_status,last_seen_at,profile_photo_path',
             'latestJobApplication.job:id,user_id,title',
             'settings' => fn ($query) => $query->where('user_id', $user->id),
         ];
 
         if ($withMessages) {
             $relations['messages'] = fn ($query) => $query
-                ->with(['sender:id,name,first_name,last_name,company_name,account_type', 'reactions'])
+                ->with(['sender:id,name,first_name,last_name,company_name,account_type,profile_photo_path', 'reactions'])
                 ->oldest();
         }
 
@@ -247,10 +247,26 @@ class ChatService
             && $this->canStartDirectConversation($user, $recipient);
     }
 
-    public function send(User $sender, Conversation $conversation, string $body, ?UploadedFile $attachment = null): Message
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    public function send(
+        User $sender,
+        Conversation $conversation,
+        string $body,
+        ?UploadedFile $attachment = null,
+        string $messageType = Message::TYPE_TEXT,
+        array $metadata = [],
+    ): Message
     {
         $conversation = $this->findConversationFor($sender, $conversation);
         abort_unless($this->canSendInConversation($sender, $conversation), 403);
+
+        abort_unless(in_array($messageType, [
+            Message::TYPE_TEXT,
+            Message::TYPE_REQUIREMENTS_CARD,
+            Message::TYPE_HIRING_ACTION,
+        ], true), 422, 'Unsupported message type.');
 
         $body = trim((string) preg_replace('/[^\S\r\n]+/u', ' ', $body));
         $hasAttachment = $attachment instanceof UploadedFile && $attachment->isValid();
@@ -270,7 +286,14 @@ class ChatService
             ];
         }
 
-        return DB::transaction(function () use ($sender, $conversation, $body, $attachmentData) {
+        return DB::transaction(function () use (
+            $sender,
+            $conversation,
+            $body,
+            $attachmentData,
+            $messageType,
+            $metadata,
+        ) {
             /** @var Conversation $lockedConversation */
             $lockedConversation = Conversation::query()
                 ->lockForUpdate()
@@ -279,6 +302,8 @@ class ChatService
             $message = $lockedConversation->messages()->create([
                 'sender_id' => $sender->id,
                 'body' => $body,
+                'message_type' => $messageType,
+                'metadata' => $metadata ?: null,
             ] + ($attachmentData ?? []));
 
             $lockedConversation->forceFill(['last_message_at' => $message->created_at])->save();
@@ -287,7 +312,95 @@ class ChatService
                 ->whereNotNull('archived_at')
                 ->update(['archived_at' => null]);
 
-            return $message->load(['sender:id,name,first_name,last_name,company_name,account_type', 'reactions']);
+            return $message->load(['sender:id,name,first_name,last_name,company_name,account_type,profile_photo_path', 'reactions']);
+        });
+    }
+
+    public function sendRequirementsCard(
+        User $employer,
+        Conversation $conversation,
+        JobApplication $application,
+    ): Message {
+        $application->loadMissing('job');
+        $job = $application->job;
+        abort_unless($job instanceof Job, 404);
+
+        return $this->send(
+            $employer,
+            $conversation,
+            "Mga requirement para sa {$job->title}",
+            null,
+            Message::TYPE_REQUIREMENTS_CARD,
+            [
+                'heading' => 'Mga kailangang ihanda',
+                'job_title' => $job->title,
+                'intro' => 'Pakihanda ang mga sumusunod para sa iyong aplikasyon. Kung may tanong, mag-message sa employer sa ibaba.',
+                'items' => $this->requirementsFromText($job->application_requirements),
+                'next_stage' => $application->nextHiringStage(),
+            ],
+        );
+    }
+
+    /** @param array<string, mixed> $metadata */
+    public function sendHiringActionCard(
+        User $employer,
+        Conversation $conversation,
+        string $body,
+        array $metadata,
+    ): Message {
+        return $this->send(
+            $employer,
+            $conversation,
+            $body,
+            null,
+            Message::TYPE_HIRING_ACTION,
+            $metadata,
+        );
+    }
+
+    /** @return array{status:string,number:int,title:string,short_label:string,description:string}|null */
+    public function synchronizeAcknowledgedRequirementsTimeline(Conversation $conversation): ?array
+    {
+        return DB::transaction(function () use ($conversation) {
+            $lockedConversation = Conversation::query()
+                ->with('jobApplication')
+                ->lockForUpdate()
+                ->findOrFail($conversation->id);
+            $requirementsCard = $lockedConversation->messages()
+                ->where('message_type', Message::TYPE_REQUIREMENTS_CARD)
+                ->oldest()
+                ->first();
+            $application = $lockedConversation->jobApplication;
+
+            if (! $requirementsCard instanceof Message
+                || ! $application instanceof JobApplication) {
+                return null;
+            }
+
+            $metadata = $requirementsCard->metadata ?? [];
+
+            if (empty($metadata['acknowledged_at']) || ! empty($metadata['timeline_processed_at'])) {
+                return null;
+            }
+
+            $lockedApplication = JobApplication::query()
+                ->lockForUpdate()
+                ->findOrFail($application->id);
+            $timeline = $lockedApplication->hiringStagePayload();
+            $nextStage = $metadata['next_stage'] ?? $lockedApplication->nextHiringStage();
+
+            if (is_string($nextStage)
+                && isset(JobApplication::hiringStages()[$nextStage])
+                && JobApplication::hiringStages()[$nextStage]['number'] > $timeline['number']) {
+                $lockedApplication->update(['status' => $nextStage]);
+                $timeline = $lockedApplication->fresh()->hiringStagePayload();
+            }
+
+            $metadata['timeline_processed_at'] = now()->toIso8601String();
+            $metadata['advanced_to'] = $timeline['status'];
+            $requirementsCard->update(['metadata' => $metadata]);
+
+            return $timeline;
         });
     }
 
@@ -346,12 +459,14 @@ class ChatService
 
     public function messagePayload(Message $message): array
     {
-        $message->loadMissing(['sender:id,name,first_name,last_name,company_name,account_type', 'reactions']);
+        $message->loadMissing(['sender:id,name,first_name,last_name,company_name,account_type,profile_photo_path', 'reactions']);
 
         return [
             'id' => $message->id,
             'conversation_id' => $message->conversation_id,
             'body' => $message->body,
+            'message_type' => $message->message_type ?: Message::TYPE_TEXT,
+            'metadata' => $message->metadata,
             'sent_at' => $message->created_at?->toIso8601String(),
             'read_at' => $message->read_at?->toIso8601String(),
             'is_read' => $message->read_at !== null,
@@ -360,6 +475,7 @@ class ChatService
                 'name' => $this->displayName($message->sender),
                 'initials' => $this->initials($message->sender),
                 'account_type' => $message->sender->account_type,
+                'photo_url' => $message->sender->profile_photo_url,
             ],
             'reactions' => $this->messageReactionsPayload($message),
             'attachment' => $message->attachment_path ? [
@@ -410,6 +526,30 @@ class ChatService
             ->take(2)
             ->map(fn (string $name) => Str::upper(Str::substr($name, 0, 1)))
             ->implode('');
+    }
+
+    /** @return array<int, array{label:string,status:string}> */
+    private function requirementsFromText(?string $requirements): array
+    {
+        $lines = preg_split('/\r\n|\r|\n/', trim((string) $requirements)) ?: [];
+
+        $items = collect($lines)
+            ->map(fn (string $line) => trim((string) preg_replace('/^\s*(?:[-*•]|\d+[.)])\s*/u', '', $line)))
+            ->filter()
+            ->take(12)
+            ->map(fn (string $label) => [
+                'label' => $label,
+                'status' => 'Kailangang ihanda',
+            ])
+            ->values()
+            ->all();
+
+        return $items !== []
+            ? $items
+            : [[
+                'label' => 'Basahin ang job description at hintayin ang susunod na mensahe ng employer.',
+                'status' => 'Wala pang dagdag na dokumento',
+            ]];
     }
 
     /** @return array{0:int,1:int} */

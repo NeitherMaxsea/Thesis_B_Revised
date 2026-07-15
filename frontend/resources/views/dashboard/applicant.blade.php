@@ -102,8 +102,12 @@
                 <strong>{{ $user?->email }}</strong>
             </div>
             <div>
-                <small>Disability</small>
+                <small>General Disability Category</small>
                 <strong>{{ $user?->disability ?: 'Not set' }}</strong>
+            </div>
+            <div>
+                <small>Disability Category</small>
+                <strong>{{ $user?->disability_category ?: 'Not set' }}</strong>
             </div>
             <div>
                 <small>Location</small>

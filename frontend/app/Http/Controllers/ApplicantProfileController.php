@@ -8,6 +8,7 @@ use App\Services\RealtimeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -39,6 +40,7 @@ class ApplicantProfileController extends Controller
             'user' => $user,
             'addresses' => self::DASMA_ADDRESSES,
             'disabilities' => config('applicant.disabilities'),
+            'disabilityCategories' => config('applicant.disability_categories'),
         ]);
     }
 
@@ -48,18 +50,35 @@ class ApplicantProfileController extends Controller
         $user = $request->user();
         $this->ensureApprovedApplicant($user);
 
+        $disabilityCategories = config('applicant.disability_categories', []);
+
         $validated = $request->validate([
             'first_name' => ['required', 'string', 'max:120', 'not_regex:/[0-9]/'],
             'last_name' => ['required', 'string', 'max:120', 'not_regex:/[0-9]/'],
-            'disability' => ['required', Rule::in(config('applicant.disabilities'))],
+            'disability' => ['required', Rule::in(array_keys($disabilityCategories))],
+            'disability_category' => ['required', Rule::in($disabilityCategories[$request->input('disability')] ?? [])],
             'contact_number' => ['required', 'regex:/^\d{10}$/'],
             'street_address' => ['required', 'string', 'max:255'],
+            'profile_photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
         ], [
             'contact_number.regex' => 'Contact number must contain exactly 10 digits.',
+            'profile_photo.max' => 'Profile photo must not be larger than 2 MB.',
         ]);
 
+        $profilePhoto = $request->file('profile_photo');
+        unset($validated['profile_photo']);
         $user->fill($validated);
         $user->name = trim("{$validated['first_name']} {$validated['last_name']}");
+
+        if ($profilePhoto) {
+            $previousPhotoPath = $user->profile_photo_path;
+            $user->profile_photo_path = $profilePhoto->store('profile-photos', 'public');
+
+            if ($previousPhotoPath) {
+                Storage::disk('public')->delete($previousPhotoPath);
+            }
+        }
+
         $user->save();
 
         $realtime->broadcast(new ProfileUpdated($user));
@@ -68,11 +87,16 @@ class ApplicantProfileController extends Controller
             'profile' => [
                 'name' => $user->first_name,
                 'full_name' => $user->name,
-                'disability' => $user->disability,
+                'disability' => $user->disability_display,
+                'general_disability_category' => $user->disability,
+                'disability_category' => $user->disability_category,
                 'email' => $user->email,
                 'contact_number' => $user->contact_number,
                 'street_address' => $user->street_address,
                 'city' => $user->city,
+                'photo_url' => $user->profile_photo_path
+                    ? Storage::disk('public')->url($user->profile_photo_path)
+                    : null,
             ],
         ];
 

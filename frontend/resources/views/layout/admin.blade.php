@@ -1,3 +1,27 @@
+@php
+    $adminUser = auth()->user();
+    $adminOnlineUsers = collect($onlineUsers ?? []);
+    $adminOnlineCount = max(0, (int) ($onlineUserCount ?? $adminOnlineUsers->count()));
+    $adminUnreadMessageCount = max(0, (int) ($unreadMessageCount ?? 0));
+    $adminInboxCursor = max(0, (int) ($inboxMessageCursor ?? 0));
+    $adminOnlineDisplayName = static function ($user): string {
+        $profileName = trim(implode(' ', array_filter([$user->first_name, $user->last_name])));
+
+        if ($user->account_type === 'employer' && filled($user->company_name)) {
+            return trim((string) $user->company_name);
+        }
+
+        return $profileName !== '' ? $profileName : $user->name;
+    };
+    $adminOnlineInitials = static function ($user) use ($adminOnlineDisplayName): string {
+        return \Illuminate\Support\Str::of($adminOnlineDisplayName($user))
+            ->explode(' ')
+            ->filter()
+            ->take(2)
+            ->map(fn ($part) => \Illuminate\Support\Str::upper(\Illuminate\Support\Str::substr($part, 0, 1)))
+            ->implode('') ?: 'AU';
+    };
+@endphp
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -12,7 +36,15 @@
     <title>Dashboard | PWD Employment Admin</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
-<body class="admin-page admin-dashboard-page">
+<body
+    class="admin-page admin-dashboard-page"
+    data-auth-user-id="{{ $adminUser?->id }}"
+    data-account-type="{{ $adminUser?->account_type }}"
+    data-unread-message-count="{{ $adminUnreadMessageCount }}"
+    data-activity-url="{{ route('activity') }}"
+    data-inbox-updates-url="{{ route('messages.inbox-updates') }}"
+    data-inbox-message-cursor="{{ $adminInboxCursor }}"
+>
     <noscript>
         <style>
             .page-entering .admin-sidebar,
@@ -98,6 +130,41 @@
                 </nav>
 
                 <div class="admin-topbar__actions">
+                    <div
+                        class="admin-online-wrap"
+                        data-admin-online-presence
+                        data-online-users-url="{{ route('admin.online-users') }}"
+                        data-active-users-url="{{ route('admin.active-users') }}"
+                    >
+                        <button type="button" class="admin-online-button" data-admin-online-toggle aria-label="Show online users" aria-expanded="false">
+                            <span class="admin-online-avatars" data-admin-online-avatars aria-hidden="true">
+                                @foreach ($adminOnlineUsers->take(3) as $onlineUser)
+                                    <span>{{ $adminOnlineInitials($onlineUser) }}</span>
+                                @endforeach
+                            </span>
+                            <span class="admin-online-button__copy"><b data-admin-online-count>{{ $adminOnlineCount }}</b> online</span>
+                            <i data-lucide="chevron-down" aria-hidden="true"></i>
+                        </button>
+                        <section class="admin-online-panel" data-admin-online-panel hidden aria-label="Users currently online">
+                            <header><strong>Online now</strong><span data-admin-online-count-label>{{ $adminOnlineCount }} active</span></header>
+                            <div data-admin-online-list>
+                                @forelse ($adminOnlineUsers as $onlineUser)
+                                    <a href="{{ route('admin.active-users') }}" class="admin-online-user">
+                                        <span class="admin-online-user__avatar" aria-hidden="true">{{ $adminOnlineInitials($onlineUser) }}</span>
+                                        <span><strong>{{ $adminOnlineDisplayName($onlineUser) }}</strong><small>{{ $onlineUser->account_type === 'employer' ? 'Employer' : 'PWD Applicant' }}</small></span>
+                                        <em>Active now</em>
+                                    </a>
+                                @empty
+                                    <p class="admin-online-empty">No contacts are active right now.</p>
+                                @endforelse
+                            </div>
+                            <a class="admin-online-panel__footer" href="{{ route('admin.active-users') }}">View active users<i data-lucide="arrow-up-right"></i></a>
+                        </section>
+                    </div>
+                    <a href="{{ route('messages.index') }}" class="admin-message-button" data-messages-link aria-label="Messages" title="Messages">
+                        <i data-lucide="messages-square"></i>
+                        <b data-unread-message-badge @if ($adminUnreadMessageCount === 0) hidden @endif>{{ $adminUnreadMessageCount > 99 ? '99+' : $adminUnreadMessageCount }}</b>
+                    </a>
                     <div class="admin-notification-wrap" data-admin-notifications data-notification-url="{{ route('admin.notifications') }}">
                         <button type="button" class="admin-notification-button" data-admin-notifications-toggle aria-label="Notifications" aria-expanded="false"><i data-lucide="bell"></i><b data-admin-notification-badge hidden>0</b></button>
                         <section class="admin-notification-panel" data-admin-notification-panel hidden aria-label="Account notifications">

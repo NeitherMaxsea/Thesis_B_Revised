@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable implements MustVerifyEmail
@@ -28,6 +29,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'age',
         'birthdate',
         'disability',
+        'disability_category',
         'contact_number',
         'street_address',
         'city',
@@ -42,6 +44,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'applicant_review_status',
         'applicant_review_notes',
         'applicant_reviewed_at',
+        'profile_photo_path',
         'email',
         'account_type',
         'password',
@@ -88,6 +91,24 @@ class User extends Authenticatable implements MustVerifyEmail
     public function employerDocuments(): HasMany
     {
         return $this->hasMany(EmployerDocument::class);
+    }
+
+    public function getDisabilityDisplayAttribute(): ?string
+    {
+        if (blank($this->disability)) {
+            return null;
+        }
+
+        return filled($this->disability_category)
+            ? "{$this->disability} — {$this->disability_category}"
+            : $this->disability;
+    }
+
+    public function getProfilePhotoUrlAttribute(): ?string
+    {
+        return $this->profile_photo_path
+            ? Storage::disk('public')->url($this->profile_photo_path)
+            : null;
     }
 
     public function jobs(): HasMany

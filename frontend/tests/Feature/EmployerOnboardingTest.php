@@ -41,7 +41,7 @@ class EmployerOnboardingTest extends TestCase
         $this->assertSame(now()->addDays((int) config('employer_documents.validity_days'))->toDateString(), EmployerDocument::where('user_id', $employer->id)->firstOrFail()->expires_at->toDateString());
     }
 
-    public function test_expired_business_document_pauses_job_posting(): void
+    public function test_business_verification_is_managed_from_employer_settings_not_job_postings(): void
     {
         $employer = User::factory()->create([
             'account_type' => 'employer',
@@ -61,7 +61,17 @@ class EmployerOnboardingTest extends TestCase
         $this->actingAs($employer)
             ->get(route('employer.dashboard'))
             ->assertOk()
-            ->assertSee('Job posting is paused.');
+            ->assertSee('Job Posting')
+            ->assertSee('Chat')
+            ->assertSee('Settings')
+            ->assertDontSee('Business documents');
+
+        $this->actingAs($employer)
+            ->get(route('employer.profile'))
+            ->assertOk()
+            ->assertSee('Business verification')
+            ->assertSee('Business documents')
+            ->assertSee('Renew expired documents');
     }
 
     public function test_valid_employer_can_publish_a_job_post(): void
@@ -129,7 +139,7 @@ class EmployerOnboardingTest extends TestCase
             ->post(route('employer.documents.renew', $expiredDocument), [
                 'document' => UploadedFile::fake()->create('renewed-dole.pdf', 100, 'application/pdf'),
             ])
-            ->assertRedirect(route('employer.dashboard'));
+            ->assertRedirect(route('employer.profile'));
 
         $expiredDocument->refresh();
         $employer->refresh();
@@ -137,5 +147,36 @@ class EmployerOnboardingTest extends TestCase
         $this->assertSame('valid', $expiredDocument->status);
         $this->assertSame(now()->addDays((int) config('employer_documents.validity_days'))->toDateString(), $expiredDocument->expires_at->toDateString());
         $this->assertSame('valid', $employer->employer_document_status);
+    }
+
+    public function test_employer_can_update_business_profile_and_photo(): void
+    {
+        Storage::fake('public');
+        config(['broadcasting.default' => 'null']);
+
+        $employer = User::factory()->create([
+            'account_type' => 'employer',
+            'company_name' => 'Old Company',
+        ]);
+
+        $this->actingAs($employer)
+            ->patchJson(route('employer.profile.update'), [
+                'company_name' => 'Accessible Work Co.',
+                'employer_contact_name' => 'Maria Santos',
+                'employer_contact_number' => '9123456789',
+                'profile_photo' => UploadedFile::fake()->createWithContent(
+                    'company-logo.png',
+                    base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL9EQAAAABJRU5ErkJggg==')
+                ),
+            ])
+            ->assertOk()
+            ->assertJsonPath('profile.company_name', 'Accessible Work Co.')
+            ->assertJsonStructure(['profile' => ['photo_url']]);
+
+        $employer->refresh();
+
+        $this->assertSame('Accessible Work Co.', $employer->company_name);
+        $this->assertSame('Accessible Work Co.', $employer->name);
+        Storage::disk('public')->assertExists($employer->profile_photo_path);
     }
 }

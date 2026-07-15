@@ -1,4 +1,4 @@
-@extends('layout.dashboard')
+@extends('layout.employer')
 
 @php
     $documentsValid = $documentStatus === 'valid';
@@ -11,8 +11,8 @@
     @endif
     <div class="employer-dashboard__hero">
         <div>
-            <p>Inclusive recruitment</p>
-            <h1>Build an accessible team.</h1>
+            <p>Job posting</p>
+            <h1>Manage your job postings.</h1>
             <span>Publish inclusive roles and connect with qualified PWD applicants.</span>
         </div>
         <button type="button" data-employer-job-open {{ $documentsValid ? '' : 'disabled' }}>
@@ -21,17 +21,9 @@
         </button>
     </div>
 
-    @unless ($documentsValid)
-        <div class="employer-dashboard__alert" role="alert">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 4.4 2.8 18a2 2 0 0 0 1.75 3h14.9A2 2 0 0 0 21.2 18L13.7 4.4a2 2 0 0 0-3.4 0Z" /></svg>
-            <span><strong>Job posting is paused.</strong> Renew every expired business document before publishing new roles.</span>
-        </div>
-    @endunless
-
     <div class="employer-dashboard__stats">
         <article><span>Active job posts</span><strong data-employer-job-count>{{ $jobs->where('status', 'published')->count() }}</strong><small>Visible to matching applicants</small></article>
         <article><span>Applications</span><strong data-employer-application-count>{{ $jobs->sum('applications_count') }}</strong><small>New applicants can continue in secure messages</small></article>
-        <article><span>Document status</span><strong>{{ $documentsValid ? 'Valid' : 'Expired' }}</strong><small>{{ $documentsValid ? 'You can publish job opportunities.' : 'Update documents to continue posting.' }}</small></article>
     </div>
 
     <section id="job-postings" class="employer-dashboard__panel">
@@ -54,26 +46,6 @@
         </div>
     </section>
 
-    <section id="documents" class="employer-dashboard__panel employer-dashboard__panel--documents">
-        <header><div><p>Verification</p><h2>Business documents</h2></div><span>{{ $documentsValid ? 'All documents current' : 'Renew expired documents' }}</span></header>
-        <div class="employer-document-list">
-            @foreach ($documents as $document)
-                <article class="{{ $document->status === 'valid' ? 'is-valid' : 'is-expired' }}">
-                    <span>{{ $document->status === 'valid' ? '✓' : '!' }}</span>
-                    <div><strong>{{ $document->document_type }}</strong><small>Expires {{ $document->expires_at->format('M j, Y') }}</small></div>
-                    <b>{{ ucfirst($document->status) }}</b>
-                    @if ($document->status !== 'valid')
-                        <form action="{{ route('employer.documents.renew', $document) }}" method="POST" enctype="multipart/form-data" class="employer-document-renewal">
-                            @csrf
-                            <label><span>Replace document</span><input type="file" name="document" accept=".pdf,.doc,.docx" required></label>
-                            <button type="submit">Renew</button>
-                        </form>
-                    @endif
-                </article>
-            @endforeach
-        </div>
-    </section>
-
     <dialog class="employer-job-modal" data-employer-job-modal aria-labelledby="employer-job-modal-title">
         <form method="dialog" class="employer-job-modal__backdrop"><button aria-label="Close job-posting dialog"></button></form>
         <div class="employer-job-modal__panel">
@@ -89,7 +61,7 @@
                     <label><span>Maximum salary</span><input name="salary_max" type="number" min="0" placeholder="Optional"></label>
                     <label class="is-wide"><span>Role description *</span><textarea name="description" rows="4" maxlength="5000" placeholder="Describe the responsibilities and qualifications." required></textarea></label>
                     <label class="is-wide"><span>Accessibility accommodations</span><textarea name="accommodations" rows="3" maxlength="2000" placeholder="Share available adjustments, accessible equipment, or flexible support."></textarea></label>
-                    <label class="is-wide"><span>Application requirements</span><textarea name="application_requirements" rows="3" maxlength="3000" placeholder="List the documents, interview steps, or next requirements for applicants. This will be sent automatically when they apply."></textarea></label>
+                    <label class="is-wide"><span>Mga requirement para sa aplikante</span><textarea name="application_requirements" rows="4" maxlength="3000" placeholder="Ilagay ang isang requirement bawat linya, halimbawa:&#10;Resume o CV&#10;Valid ID&#10;Portfolio o sample work"></textarea><small class="employer-job-modal__field-help">Ipapadala ito bilang requirement card sa applicant kapag nag-apply siya.</small></label>
                 </div>
                 <footer><p data-employer-job-status role="status"></p><button type="submit" data-employer-job-submit>Publish job post</button></footer>
             </form>

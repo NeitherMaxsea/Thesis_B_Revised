@@ -1,12 +1,15 @@
 @extends('layout.dashboard')
 
 @php
+    use Illuminate\Support\Facades\Storage;
+
     $displayName = $user->first_name ?: $user->name;
     $initials = collect(explode(' ', $user->name))->filter()->take(2)->map(fn ($part) => strtoupper(substr($part, 0, 1)))->implode('');
+    $profilePhotoUrl = $user->profile_photo_path ? Storage::disk('public')->url($user->profile_photo_path) : null;
 @endphp
 
 @section('content')
-<section class="applicant-profile-page" data-applicant-profile data-user-id="{{ $user->id }}" aria-labelledby="applicant-profile-title">
+<section class="applicant-profile-page" data-applicant-profile data-user-id="{{ $user->id }}" data-disability-categories='@json($disabilityCategories)' aria-labelledby="applicant-profile-title">
     <div class="applicant-profile-page__intro">
         <div>
             <p class="applicant-profile-page__eyebrow">Applicant account</p>
@@ -18,9 +21,20 @@
 
     <div class="applicant-profile-layout">
         <aside class="applicant-profile-summary">
-            <span class="applicant-profile-summary__avatar" data-profile-avatar>{{ $initials ?: 'PA' }}</span>
+            <span class="applicant-profile-summary__avatar {{ $profilePhotoUrl ? 'has-image' : '' }}" data-profile-avatar>
+                @if ($profilePhotoUrl)
+                    <img src="{{ $profilePhotoUrl }}" alt="Profile photo of {{ $user->name }}" data-profile-avatar-image>
+                @else
+                    {{ $initials ?: 'PA' }}
+                @endif
+            </span>
+            <label class="applicant-profile-summary__photo-action" for="profile-photo-input">
+                <input id="profile-photo-input" form="applicant-profile-form" type="file" name="profile_photo" accept="image/jpeg,image/png,image/webp" data-profile-photo-input>
+                <span>Change profile photo</span>
+                <small>JPG, PNG, or WebP · max 2 MB</small>
+            </label>
             <h2 data-profile-full-name>{{ $user->name }}</h2>
-            <p data-profile-disability>{{ $user->disability ?: 'PWD Applicant' }}</p>
+            <p data-profile-disability>{{ $user->disability_display ?: 'PWD Applicant' }}</p>
             <span class="applicant-profile-summary__status"><i aria-hidden="true"></i> Approved applicant</span>
 
             <dl>
@@ -38,7 +52,7 @@
                 <span>Required fields are marked *</span>
             </header>
 
-            <form action="{{ route('applicant.profile.update') }}" method="POST" data-profile-form novalidate>
+            <form id="applicant-profile-form" action="{{ route('applicant.profile.update') }}" method="POST" data-profile-form novalidate>
                 @csrf
                 @method('PATCH')
                 <div class="applicant-profile-form-grid">
@@ -51,11 +65,20 @@
                         <input name="last_name" value="{{ old('last_name', $user->last_name) }}" maxlength="120" data-profile-last-name required>
                     </label>
                     <label>
-                        <span>Disability *</span>
-                        <select name="disability" data-profile-disability-input required>
-                            <option value="">Select disability</option>
+                        <span>General Disability Category *</span>
+                        <select name="disability" data-profile-general-disability required>
+                            <option value="">Select general disability category</option>
                             @foreach ($disabilities as $disability)
                                 <option value="{{ $disability }}" @selected(old('disability', $user->disability) === $disability)>{{ $disability }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                    <label>
+                        <span>Disability Category *</span>
+                        <select name="disability_category" data-profile-disability-category required>
+                            <option value="">Select disability category</option>
+                            @foreach ($disabilityCategories[old('disability', $user->disability)] ?? [] as $category)
+                                <option value="{{ $category }}" @selected(old('disability_category', $user->disability_category) === $category)>{{ $category }}</option>
                             @endforeach
                         </select>
                     </label>

@@ -195,11 +195,11 @@
                             $prefix = $record['role'] === 'Business' ? 'BUS' : 'PWD';
                             $initials = Str::of($account->name)->explode(' ')->filter()->map(fn ($part) => Str::substr($part, 0, 1))->take(2)->implode('');
                         @endphp
-                        <tr>
+                        <tr data-admin-account-id="{{ $account->id }}">
                             <td class="admin-record-id">{{ $prefix }}-{{ str_pad((string) $account->id, 6, '0', STR_PAD_LEFT) }}</td>
                             <td>
                                 <div class="admin-account-cell">
-                                    <span class="admin-account-avatar admin-account-avatar--{{ Str::lower($record['role']) }}">{{ Str::upper($initials ?: 'AU') }}</span>
+                                    <span class="admin-account-avatar admin-account-avatar--{{ Str::lower($record['role']) }} {{ $account->profile_photo_url ? 'has-image' : '' }}" data-admin-account-avatar>@if ($account->profile_photo_url)<img src="{{ $account->profile_photo_url }}" alt="">@else{{ Str::upper($initials ?: 'AU') }}@endif</span>
                                     <span><strong>{{ $account->name }}</strong><small>{{ $account->email }}</small></span>
                                 </div>
                             </td>

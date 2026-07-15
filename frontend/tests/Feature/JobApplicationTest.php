@@ -7,6 +7,7 @@ use App\Models\Conversation;
 use App\Models\EmployerDocument;
 use App\Models\Job;
 use App\Models\JobApplication;
+use App\Models\Message;
 use App\Models\User;
 use App\Services\EmployerDocumentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -98,11 +99,15 @@ class JobApplicationTest extends TestCase
             'first_user_id' => min($applicant->id, $employer->id),
             'second_user_id' => max($applicant->id, $employer->id),
         ]);
+        $requirementsMessage = Message::query()->where('conversation_id', $conversation->id)->firstOrFail();
         $this->assertDatabaseHas('messages', [
             'conversation_id' => $conversation->id,
             'sender_id' => $employer->id,
-            'body' => "Application requirements for Customer Support Associate:\n1. Submit your current resume.\n2. Wait for an interview schedule in Messages.",
+            'body' => 'Mga requirement para sa Customer Support Associate',
+            'message_type' => Message::TYPE_REQUIREMENTS_CARD,
         ]);
+        $this->assertSame('Submit your current resume.', $requirementsMessage->metadata['items'][0]['label']);
+        $this->assertSame('Wait for an interview schedule in Messages.', $requirementsMessage->metadata['items'][1]['label']);
 
         Event::assertDispatchedTimes(JobApplicationSubmitted::class, 1);
 

@@ -19,7 +19,7 @@ class JobMatchController extends Controller
         );
 
         $jobs = Job::query()
-            ->with('employer:id,name,company_name')
+            ->with('employer:id,name,company_name,profile_photo_path')
             ->where('status', 'published')
             ->whereHas('employer', fn ($query) => $query
                 ->where('account_type', 'employer')

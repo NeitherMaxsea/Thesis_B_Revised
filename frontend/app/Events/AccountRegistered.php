@@ -60,7 +60,7 @@ class AccountRegistered implements ShouldBroadcastNow
             'created_at_display' => $account->created_at?->format('M d, Y · g:i A') ?? 'Just now',
             'date_display' => $account->created_at?->format('M d, Y') ?? 'Today',
             'contact' => $account->contact_number ?: 'Not set',
-            'disability' => $account->disability ?: 'Not set',
+            'disability' => $account->disability_display ?: 'Not set',
             'age' => $account->age ?: 'Not set',
             'approve_url' => $isApplicant ? route('admin.applicants.approve', $account) : null,
             'reject_url' => $isApplicant ? route('admin.applicants.decline', $account) : null,

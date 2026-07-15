@@ -220,6 +220,18 @@ Route::post('/messages/{conversation}', [ChatController::class, 'store'])
     ->middleware(['auth', 'verified'])
     ->name('messages.store');
 
+Route::patch('/messages/{conversation}/application-stage', [ChatController::class, 'updateApplicationStage'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.application-stage');
+
+Route::post('/messages/{conversation}/hiring-actions', [ChatController::class, 'sendHiringAction'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.hiring-actions.store');
+
+Route::post('/messages/{conversation}/messages/{message}/requirements/acknowledge', [ChatController::class, 'acknowledgeRequirements'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.requirements.acknowledge');
+
 Route::patch('/messages/{conversation}/read', [ChatController::class, 'markRead'])
     ->middleware(['auth', 'verified'])
     ->name('messages.read');
@@ -266,6 +278,14 @@ Route::post('/activity', function (Request $request) {
 Route::get('/admin/dashboard', [AdminController::class, 'index'])
     ->middleware('auth')
     ->name('admin.dashboard');
+
+Route::get('/admin/active-users', [AdminController::class, 'activeUsers'])
+    ->middleware('auth')
+    ->name('admin.active-users');
+
+Route::get('/admin/online-users', [AdminController::class, 'onlineUsers'])
+    ->middleware('auth')
+    ->name('admin.online-users');
 
 Route::get('/admin/users', [AdminController::class, 'users'])
     ->middleware('auth')

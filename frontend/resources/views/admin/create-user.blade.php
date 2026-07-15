@@ -1,5 +1,9 @@
 @extends('layout.admin')
 
+@php
+    $generalDisabilityCategories = array_keys($disabilityCategories);
+@endphp
+
 @section('breadcrumb')
     <i data-lucide="house"></i>
     <i data-lucide="chevron-right"></i>
@@ -19,7 +23,7 @@
         <div class="admin-create-alert" role="alert">{{ $errors->first() }}</div>
     @endif
 
-    <form action="{{ route('admin.users.store') }}" method="POST" enctype="multipart/form-data" class="admin-create-card" data-admin-create-panel="applicant">
+    <form action="{{ route('admin.users.store') }}" method="POST" enctype="multipart/form-data" class="admin-create-card" data-admin-create-panel="applicant" data-admin-disability-form data-disability-categories='@json($disabilityCategories)'>
         @csrf
         <input type="hidden" name="account_type" value="pwd_applicant">
         <header>
@@ -28,7 +32,8 @@
         </header>
 
         <div class="admin-create-grid admin-create-grid--three">
-            <label><span>Disability <b>*</b></span><select name="disability" required><option value="">Select disability</option><option>Deaf or Hard of Hearing</option><option>Visual Disability</option><option>Speech and Language Impairment</option><option>Physical Disability</option><option>Psychosocial Disability</option></select></label>
+            <label><span>General Disability Category <b>*</b></span><select name="disability" data-admin-general-disability required><option value="">Select general disability category</option>@foreach ($generalDisabilityCategories as $category)<option value="{{ $category }}" @selected(old('disability') === $category)>{{ $category }}</option>@endforeach</select></label>
+            <label><span>Disability Category <b>*</b></span><select name="disability_category" data-admin-disability-category data-selected-disability-category="{{ old('disability_category') }}" required disabled><option value="">Select general category first</option></select></label>
             <label class="admin-create-grid__span-two"><span>Email Address <b>*</b></span><input type="email" name="email" placeholder="Enter email address" required></label>
             <label><span>First Name <b>*</b></span><input name="first_name" placeholder="Enter first name" required></label>
             <label><span>Middle Name <em>(Optional)</em></span><input name="middle_name" placeholder="Enter middle name"></label>

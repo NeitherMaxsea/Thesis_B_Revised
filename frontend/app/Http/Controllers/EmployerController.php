@@ -6,11 +6,13 @@ use App\Models\Job;
 use App\Models\EmployerDocument;
 use App\Models\User;
 use App\Events\JobPosted;
+use App\Events\ProfileUpdated;
 use App\Services\EmployerDocumentService;
 use App\Services\RealtimeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class EmployerController extends Controller
@@ -27,12 +29,10 @@ class EmployerController extends Controller
         $employer = $request->user();
         $this->ensureEmployer($employer);
         $documentStatus = $this->documents->refreshStatus($employer);
-        $documents = $employer->employerDocuments()->orderBy('document_type')->get();
 
         return view('employer.dashboard', [
             'employer' => $employer,
             'documentStatus' => $documentStatus,
-            'documents' => $documents,
             'jobs' => Job::query()
                 ->where('user_id', $employer->id)
                 ->withCount('applications')
@@ -96,10 +96,14 @@ class EmployerController extends Controller
         $employer = $request->user();
         $this->ensureEmployer($employer);
 
-        return view('employer.profile', compact('employer'));
+        return view('employer.profile', [
+            'employer' => $employer,
+            'documentStatus' => $this->documents->refreshStatus($employer),
+            'documents' => $employer->employerDocuments()->orderBy('document_type')->get(),
+        ]);
     }
 
-    public function updateProfile(Request $request): RedirectResponse
+    public function updateProfile(Request $request): JsonResponse|RedirectResponse
     {
         /** @var User $employer */
         $employer = $request->user();
@@ -109,18 +113,45 @@ class EmployerController extends Controller
             'company_name' => ['required', 'string', 'max:160'],
             'employer_contact_name' => ['required', 'string', 'max:120', 'not_regex:/[0-9]/'],
             'employer_contact_number' => ['required', 'regex:/^\d{10}$/'],
+            'profile_photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
         ], [
             'employer_contact_number.regex' => 'Contact number must contain exactly 10 digits.',
         ]);
 
+        $profilePhoto = $validated['profile_photo'] ?? null;
+        unset($validated['profile_photo']);
+
         $employer->fill($validated);
         $employer->name = $validated['company_name'];
+
+        if ($profilePhoto) {
+            $previousPhotoPath = $employer->profile_photo_path;
+            $employer->profile_photo_path = $profilePhoto->store('profile-photos', 'public');
+
+            if ($previousPhotoPath) {
+                Storage::disk('public')->delete($previousPhotoPath);
+            }
+        }
+
         $employer->save();
+        $this->realtime->broadcast(new ProfileUpdated($employer));
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Business profile updated.',
+                'profile' => [
+                    'company_name' => $employer->company_name,
+                    'employer_contact_name' => $employer->employer_contact_name,
+                    'employer_contact_number' => $employer->employer_contact_number,
+                    'photo_url' => $employer->profile_photo_url,
+                ],
+            ]);
+        }
 
         return redirect()->route('employer.profile')->with('status', 'Business profile updated.');
     }
 
-    public function renewDocument(Request $request, EmployerDocument $document): RedirectResponse
+    public function renewDocument(Request $request, EmployerDocument $document): JsonResponse|RedirectResponse
     {
         /** @var User $employer */
         $employer = $request->user();
@@ -138,11 +169,20 @@ class EmployerController extends Controller
         ]);
         $status = $this->documents->refreshStatus($employer);
 
+        $message = $status === 'valid'
+            ? 'Document renewed. Your job-posting access is active again.'
+            : 'Document renewed. Renew the remaining expired documents to restore job-posting access.';
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'document_status' => $status,
+            ]);
+        }
+
         return redirect()
-            ->route('employer.dashboard')
-            ->with('status', $status === 'valid'
-                ? 'Document renewed. Your job-posting access is active again.'
-                : 'Document renewed. Renew the remaining expired documents to restore job-posting access.');
+            ->route('employer.profile')
+            ->with('status', $message);
     }
 
     private function ensureEmployer(User $user): void

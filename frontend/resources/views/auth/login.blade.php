@@ -78,7 +78,7 @@
                         @endif
 
                         <div class="mt-7">
-                            <label for="login-email" class="text-sm font-semibold text-slate-900">Email Address</label>
+                            <label for="login-email" class="text-sm font-semibold text-slate-900">Email / PWD ID Number</label>
                             <div class="auth-input-shell mt-2 flex h-12 items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 7.5v9A2.25 2.25 0 0 1 19.5 18.75h-15A2.25 2.25 0 0 1 2.25 16.5v-9m19.5 0A2.25 2.25 0 0 0 19.5 5.25h-15A2.25 2.25 0 0 0 2.25 7.5m19.5 0-8.47 5.33a2.25 2.25 0 0 1-2.56 0L2.25 7.5" />
@@ -89,7 +89,7 @@
 
                         <div class="mt-5">
                             <div class="flex items-center justify-between gap-4">
-                                <label for="login-password" class="text-sm font-semibold text-slate-900">Enter your Password</label>
+                                <label for="login-password" class="text-sm font-semibold text-slate-900">Password</label>
                                 <a href="#" class="text-xs font-semibold text-[#176c3a] hover:text-[#0f4e2b]">Forgot password?</a>
                             </div>
                             <div class="auth-input-shell mt-2 flex h-12 items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4">
@@ -97,6 +97,11 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V7.25a4.5 4.5 0 0 0-9 0v3.25M6.75 10.5h10.5A1.75 1.75 0 0 1 19 12.25v6A1.75 1.75 0 0 1 17.25 20H6.75A1.75 1.75 0 0 1 5 18.25v-6a1.75 1.75 0 0 1 1.75-1.75Z" />
                                 </svg>
                                 <input id="login-password" name="password" type="password" placeholder="Enter your password" class="h-full w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-gray-400">
+                                <button type="button" class="auth-password-toggle" data-password-toggle data-password-target="login-password" aria-controls="login-password" aria-label="Show password" aria-pressed="false" title="Show password">
+                                    <svg data-password-icon="show" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.75" /></svg>
+                                    <svg data-password-icon="hide" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="m3 3 18 18M10.7 6.2A10.8 10.8 0 0 1 12 6c6.1 0 9.5 6 9.5 6a17.8 17.8 0 0 1-3.1 3.8M6.1 6.1A17.7 17.7 0 0 0 2.5 12s3.4 6 9.5 6a10.7 10.7 0 0 0 4.1-.8M9.8 9.8a3.1 3.1 0 0 0 4.4 4.4" /></svg>
+                                    <span class="sr-only" data-password-toggle-text>Show password</span>
+                                </button>
                             </div>
                         </div>
 

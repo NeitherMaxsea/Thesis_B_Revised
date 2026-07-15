@@ -178,7 +178,10 @@ export const initRealtimeInbox = ({ showSweetToast } = {}) => {
     };
 
     syncInboxUpdates();
-    window.setInterval(syncInboxUpdates, 1500);
+    // WebSocket events update the inbox immediately. This request is a
+    // fallback for reconnects, so reducing its frequency prevents dozens of
+    // redundant requests per user every minute.
+    window.setInterval(syncInboxUpdates, window.Echo ? 10000 : 5000);
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState !== 'hidden') {
             syncInboxUpdates();
@@ -192,6 +195,9 @@ export const initRealtimeInbox = ({ showSweetToast } = {}) => {
     window.Echo.private(`App.Models.User.${currentUserId}`)
         .listen('.message.sent', ({ message }) => {
             handleIncomingMessage(message);
+        })
+        .listen('.profile.updated', (payload) => {
+            window.dispatchEvent(new CustomEvent('profile:updated', { detail: payload }));
         })
         .listen('.job-application.submitted', ({ application }) => {
             if (

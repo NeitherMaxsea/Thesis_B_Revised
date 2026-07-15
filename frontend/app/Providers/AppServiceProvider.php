@@ -52,5 +52,56 @@ class AppServiceProvider extends ServiceProvider
                 'recentJobApplications' => $recentJobApplications,
             ]);
         });
+
+        // The admin header is present on every administration screen, so keep
+        // its chat badge and the small online roster in one shared composer.
+        // A user is considered online while their activity heartbeat is less
+        // than two minutes old (the same rule used by the chat presence UI).
+        View::composer('layout.admin', function ($view) {
+            /** @var User|null $user */
+            $user = Auth::user();
+            $onlineUsers = collect();
+            $onlineUserCount = 0;
+            $unreadMessageCount = 0;
+            $inboxMessageCursor = 0;
+
+            if ($user instanceof User && $user->account_type === 'admin') {
+                $onlineQuery = User::query()
+                    ->where('last_seen_at', '>=', now()->subMinutes(2))
+                    ->where(function ($query) {
+                        $query->where(function ($query) {
+                            $query->where('account_type', 'pwd_applicant')
+                                ->where('applicant_review_status', 'approved');
+                        })->orWhere(function ($query) {
+                            $query->where('account_type', 'employer')
+                                ->where('employer_document_status', 'valid');
+                        });
+                    });
+
+                $onlineUserCount = (clone $onlineQuery)->count();
+                $onlineUsers = $onlineQuery
+                    ->orderByDesc('last_seen_at')
+                    ->limit(6)
+                    ->get([
+                        'id',
+                        'name',
+                        'first_name',
+                        'last_name',
+                        'company_name',
+                        'account_type',
+                        'last_seen_at',
+                    ]);
+                $chatService = app(ChatService::class);
+                $unreadMessageCount = $chatService->totalUnreadCount($user);
+                $inboxMessageCursor = $chatService->inboxMessageCursor($user);
+            }
+
+            $view->with([
+                'onlineUsers' => $onlineUsers,
+                'onlineUserCount' => $onlineUserCount,
+                'unreadMessageCount' => $unreadMessageCount,
+                'inboxMessageCursor' => $inboxMessageCursor,
+            ]);
+        });
     }
 }

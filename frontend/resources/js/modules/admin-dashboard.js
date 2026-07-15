@@ -1,4 +1,5 @@
 import {
+    ArrowUpRight,
     BadgeCheck,
     Bell,
     Briefcase,
@@ -25,9 +26,11 @@ import {
     LayoutDashboard,
     List,
     ListFilter,
+    MessagesSquare,
     PanelLeftClose,
     Palette,
     ReceiptText,
+    RadioTower,
     Printer,
     Search,
     Settings2,
@@ -42,6 +45,7 @@ import {
 import Swal from 'sweetalert2';
 
 const adminIcons = {
+    ArrowUpRight,
     BadgeCheck,
     Bell,
     Briefcase,
@@ -67,9 +71,11 @@ const adminIcons = {
     LayoutDashboard,
     List,
     ListFilter,
+    MessagesSquare,
     PanelLeftClose,
     Palette,
     ReceiptText,
+    RadioTower,
     Printer,
     Search,
     Settings2,
@@ -408,6 +414,135 @@ export const initAdminDashboard = () => {
     updateNotifications();
     window.setInterval(updateNotifications, 10000);
 
+    const onlineRoot = document.querySelector('[data-admin-online-presence]');
+    const onlineToggle = onlineRoot?.querySelector('[data-admin-online-toggle]');
+    const onlinePanel = onlineRoot?.querySelector('[data-admin-online-panel]');
+    const onlineList = onlineRoot?.querySelector('[data-admin-online-list]');
+    const onlineAvatars = onlineRoot?.querySelector('[data-admin-online-avatars]');
+    const onlineCountElements = onlineRoot?.querySelectorAll('[data-admin-online-count]') ?? [];
+    const onlineCountLabel = onlineRoot?.querySelector('[data-admin-online-count-label]');
+    let onlineRefreshInFlight = false;
+
+    const updateOnlineCount = (count) => {
+        const safeCount = Math.max(0, Number(count) || 0);
+
+        onlineCountElements.forEach((element) => {
+            element.textContent = String(safeCount);
+        });
+
+        if (onlineCountLabel) {
+            onlineCountLabel.textContent = `${safeCount} active`;
+        }
+    };
+
+    const renderOnlineUsers = (users = []) => {
+        if (!onlineList || !onlineAvatars) {
+            return;
+        }
+
+        const avatars = document.createDocumentFragment();
+        const list = document.createDocumentFragment();
+
+        users.slice(0, 3).forEach((user) => {
+            const avatar = document.createElement('span');
+            avatar.textContent = user.initials || 'AU';
+            avatars.append(avatar);
+        });
+
+        if (!users.length) {
+            const empty = document.createElement('p');
+            empty.className = 'admin-online-empty';
+            empty.textContent = 'No contacts are active right now.';
+            list.append(empty);
+        } else {
+            users.forEach((user) => {
+                const item = document.createElement('a');
+                item.className = 'admin-online-user';
+                item.href = onlineRoot?.dataset.activeUsersUrl || '#';
+
+                const avatar = document.createElement('span');
+                avatar.className = 'admin-online-user__avatar';
+                avatar.setAttribute('aria-hidden', 'true');
+                avatar.textContent = user.initials || 'AU';
+
+                const copy = document.createElement('span');
+                const name = document.createElement('strong');
+                const role = document.createElement('small');
+                name.textContent = user.name || 'Active user';
+                role.textContent = user.role || 'Platform user';
+                copy.append(name, role);
+
+                const status = document.createElement('em');
+                status.textContent = 'Active now';
+                item.append(avatar, copy, status);
+                list.append(item);
+            });
+        }
+
+        onlineAvatars.replaceChildren(avatars);
+        onlineList.replaceChildren(list);
+    };
+
+    const refreshOnlineUsers = async () => {
+        const endpoint = onlineRoot?.dataset.onlineUsersUrl;
+
+        if (!endpoint || onlineRefreshInFlight || document.visibilityState === 'hidden') {
+            return;
+        }
+
+        onlineRefreshInFlight = true;
+
+        try {
+            const response = await fetch(endpoint, {
+                headers: { Accept: 'application/json' },
+                credentials: 'same-origin',
+            });
+
+            if (!response.ok) {
+                return;
+            }
+
+            const payload = await response.json();
+            updateOnlineCount(payload.count);
+            renderOnlineUsers(Array.isArray(payload.users) ? payload.users : []);
+        } catch {
+            // Keep the latest known roster if a short presence refresh fails.
+        } finally {
+            onlineRefreshInFlight = false;
+        }
+    };
+
+    onlineToggle?.addEventListener('click', () => {
+        if (!onlinePanel) {
+            return;
+        }
+
+        const isOpening = onlinePanel.hidden;
+        onlinePanel.hidden = !isOpening;
+        onlineToggle.setAttribute('aria-expanded', String(isOpening));
+
+        if (isOpening) {
+            notificationPanel && (notificationPanel.hidden = true);
+            notificationToggle?.setAttribute('aria-expanded', 'false');
+            refreshOnlineUsers();
+        }
+    });
+
+    document.addEventListener('click', (event) => {
+        if (onlineRoot && onlinePanel && !onlineRoot.contains(event.target)) {
+            onlinePanel.hidden = true;
+            onlineToggle?.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    refreshOnlineUsers();
+    window.setInterval(refreshOnlineUsers, 30000);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'hidden') {
+            refreshOnlineUsers();
+        }
+    });
+
     document.querySelector('[data-admin-logout-open]')?.addEventListener('click', async () => {
         const result = await Swal.fire({
             icon: 'question',
@@ -531,6 +666,43 @@ export const initAdminDashboard = () => {
             });
         });
     }
+
+    document.querySelectorAll('[data-admin-disability-form]').forEach((form) => {
+        const generalInput = form.querySelector('[data-admin-general-disability]');
+        const categoryInput = form.querySelector('[data-admin-disability-category]');
+
+        if (!(generalInput instanceof HTMLSelectElement) || !(categoryInput instanceof HTMLSelectElement)) {
+            return;
+        }
+
+        let disabilityCategories = {};
+        try {
+            disabilityCategories = JSON.parse(form.dataset.disabilityCategories || '{}');
+        } catch {
+            disabilityCategories = {};
+        }
+
+        const syncCategoryOptions = ({ preserveSelection = true } = {}) => {
+            const selectedValue = preserveSelection
+                ? (categoryInput.value || categoryInput.dataset.selectedDisabilityCategory || '')
+                : '';
+            const categories = disabilityCategories[generalInput.value] || [];
+
+            categoryInput.replaceChildren(new Option(
+                generalInput.value ? 'Select disability category' : 'Select general category first',
+                '',
+            ));
+            categories.forEach((category) => categoryInput.add(new Option(category, category)));
+            categoryInput.disabled = !generalInput.value;
+
+            if (categories.includes(selectedValue)) {
+                categoryInput.value = selectedValue;
+            }
+        };
+
+        generalInput.addEventListener('change', () => syncCategoryOptions({ preserveSelection: false }));
+        syncCategoryOptions();
+    });
 
     const applicantList = document.querySelector('[data-admin-applicant-list]');
 

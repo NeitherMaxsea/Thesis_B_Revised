@@ -458,6 +458,20 @@ export const initAdminAccountRealtime = ({ showSweetToast } = {}) => {
         markReviewed(payload.account);
     };
 
+    const updateAccountPhoto = ({ user_id: userId, profile } = {}) => {
+        if (!userId || !profile?.photo_url) {
+            return;
+        }
+
+        document.querySelectorAll(`[data-admin-account-id="${userId}"] [data-admin-account-avatar]`).forEach((avatar) => {
+            const image = document.createElement('img');
+            image.src = profile.photo_url;
+            image.alt = '';
+            avatar.classList.add('has-image');
+            avatar.replaceChildren(image);
+        });
+    };
+
     const notificationUrl = document.querySelector('[data-admin-notifications]')?.dataset.notificationUrl;
     const syncSummary = async () => {
         if (!notificationUrl || document.visibilityState === 'hidden') {
@@ -493,5 +507,6 @@ export const initAdminAccountRealtime = ({ showSweetToast } = {}) => {
 
     window.Echo.private('admin.accounts')
         .listen('.account.registered', handleRegistration)
-        .listen('.account.review-updated', handleReviewUpdate);
+        .listen('.account.review-updated', handleReviewUpdate)
+        .listen('.profile.updated', updateAccountPhoto);
 };

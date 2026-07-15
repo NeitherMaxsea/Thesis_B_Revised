@@ -158,6 +158,8 @@ class AuthController extends Controller
 
     public function register(Request $request): RedirectResponse
     {
+        $disabilityCategories = config('applicant.disability_categories', []);
+
         // APPLICANT RULES: the PWD profile and ID are mandatory only for pwd_applicant accounts.
         // EMPLOYER RULES: employers use only the shared account fields below.
         $validator = Validator::make($request->all(), [
@@ -167,7 +169,8 @@ class AuthController extends Controller
             'gender' => ['required_if:account_type,pwd_applicant', 'nullable', Rule::in(['female', 'male', 'non_binary', 'prefer_not_to_say'])],
             'age' => ['required_if:account_type,pwd_applicant', 'nullable', 'integer', 'min:15', 'max:100'],
             'birthdate' => ['required_if:account_type,pwd_applicant', 'nullable', 'date', 'before:today'],
-            'disability' => ['required_if:account_type,pwd_applicant', 'nullable', Rule::in(config('applicant.disabilities'))],
+            'disability' => ['required_if:account_type,pwd_applicant', 'nullable', Rule::in(array_keys($disabilityCategories))],
+            'disability_category' => ['required_if:account_type,pwd_applicant', 'nullable', 'string', 'max:160'],
             'contact_number' => ['required_if:account_type,pwd_applicant', 'nullable', 'regex:/^\d{10}$/'],
             'street_address' => ['required_if:account_type,pwd_applicant', 'nullable', 'string', 'max:255', Rule::in(self::DASMA_ADDRESSES)],
             'city' => ['nullable', Rule::in(['Dasmarinas'])],
@@ -191,6 +194,19 @@ class AuthController extends Controller
             'contact_number.regex' => 'Contact number must contain exactly 10 digits.',
             'employer_contact_number.regex' => 'Contact number must contain exactly 10 digits.',
         ]);
+
+        $validator->after(function ($validator) use ($request, $disabilityCategories) {
+            if ($request->input('account_type') !== 'pwd_applicant') {
+                return;
+            }
+
+            $generalCategory = $request->input('disability');
+            $specificCategory = $request->input('disability_category');
+
+            if (! in_array($specificCategory, $disabilityCategories[$generalCategory] ?? [], true)) {
+                $validator->errors()->add('disability_category', 'Choose a disability category under the selected general disability category.');
+            }
+        });
 
         if ($validator->fails()) {
             return redirect()
@@ -234,6 +250,7 @@ class AuthController extends Controller
                 $validated['age'],
                 $validated['birthdate'],
                 $validated['disability'],
+                $validated['disability_category'],
                 $validated['contact_number'],
                 $validated['street_address'],
                 $validated['city'],

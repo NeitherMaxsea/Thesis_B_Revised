@@ -81,6 +81,7 @@
     ];
 
     $disabilityTypes = config('applicant.disabilities');
+    $disabilityCategories = config('applicant.disability_categories');
 @endphp
 
 @section('content')
@@ -143,7 +144,7 @@
                 </div>
 
                 <div class="px-6 py-8 sm:px-8">
-                    <form class="auth-panel" action="{{ route('register.store') }}" method="POST" enctype="multipart/form-data" data-register-form>
+                    <form class="auth-panel" action="{{ route('register.store') }}" method="POST" enctype="multipart/form-data" data-register-form data-register-has-errors="{{ $errors->any() ? 'true' : 'false' }}" data-disability-categories='@json($disabilityCategories)'>
                         @csrf
                         <h2 class="text-2xl font-bold text-slate-950">Create your account</h2>
                         <p class="mt-2 text-sm text-slate-500" data-register-copy>Choose your account type, then complete the required setup.</p>
@@ -154,7 +155,7 @@
                             </div>
                         @endif
 
-                        <div class="auth-stepper mt-6" data-register-stepper>
+                        <div class="auth-stepper mt-6 {{ $errors->any() ? '' : 'is-hidden' }}" data-register-stepper>
                             <button type="button" class="is-active" data-register-step-button="1">
                                 <span>1</span>
                                 Basic Info
@@ -170,12 +171,12 @@
                         </div>
 
                         {{-- ROLE SELECTOR: shared entry point for PWD applicants and employers. JS behavior lives in modules/auth-registration.js. --}}
-                        <div class="mt-6">
+                        <div class="mt-6" data-register-role-selector>
                             <p class="text-sm font-semibold text-slate-900">Account Type</p>
                             <input type="hidden" name="account_type" value="{{ $accountType }}" data-auth-role-input>
 
                             <div class="mt-3 grid grid-cols-2 gap-3">
-                                <button type="button" class="auth-role-card {{ $accountType === 'pwd_applicant' ? 'is-active' : '' }}" data-auth-role="pwd_applicant" aria-pressed="{{ $accountType === 'pwd_applicant' ? 'true' : 'false' }}">
+                                <button type="button" class="auth-role-card {{ $errors->any() && $accountType === 'pwd_applicant' ? 'is-active' : '' }}" data-auth-role="pwd_applicant" aria-pressed="{{ $errors->any() && $accountType === 'pwd_applicant' ? 'true' : 'false' }}">
                                     <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-[#e8f5ee] text-[#176c3a]">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.25a7.5 7.5 0 0 1 15 0" />
@@ -185,7 +186,7 @@
                                     <span class="mt-1 block text-[10px] font-semibold text-slate-500">Find inclusive work</span>
                                 </button>
 
-                                <button type="button" class="auth-role-card {{ $accountType === 'employer' ? 'is-active' : '' }}" data-auth-role="employer" aria-pressed="{{ $accountType === 'employer' ? 'true' : 'false' }}">
+                                <button type="button" class="auth-role-card {{ $errors->any() && $accountType === 'employer' ? 'is-active' : '' }}" data-auth-role="employer" aria-pressed="{{ $errors->any() && $accountType === 'employer' ? 'true' : 'false' }}">
                                     <span class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M4.75 20.25h14.5M7 20V6.75A1.75 1.75 0 0 1 8.75 5h6.5A1.75 1.75 0 0 1 17 6.75V20M9.25 8.5h1.5m2.5 0h1.5m-5.5 3h1.5m2.5 0h1.5m-5.5 3h1.5m2.5 0h1.5M10 20v-2.75h4V20" />
@@ -197,11 +198,17 @@
                             </div>
 
                             <p class="mt-3 hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800" data-role-switch-notice>
-                                You already started the PWD applicant form. Clear those fields first before switching to Employer.
+                                You already started this registration. Clear the current fields first before changing account type.
                             </p>
                         </div>
 
-                        <div class="mt-6" data-register-step="1">
+                        <div class="auth-role-selected is-hidden" data-register-role-summary aria-live="polite">
+                            <span class="auth-role-selected__copy">Registering as <strong data-register-role-summary-label>PWD Applicant</strong></span>
+                            <button type="button" data-register-change-role>Change account type</button>
+                            <p class="auth-role-selected__notice is-hidden" data-role-locked-notice>Clear the current form fields first before changing account type.</p>
+                        </div>
+
+                        <div class="mt-6 {{ $errors->any() ? '' : 'is-hidden' }}" data-register-step="1">
                         {{-- APPLICANT ONLY: profile details required before admin can verify the PWD ID. --}}
                         <div data-applicant-only>
                             <div class="grid gap-4 sm:grid-cols-[1fr_1fr_8rem]">
@@ -243,18 +250,42 @@
                                 </div>
                                 <div>
                                     <label for="register-birthdate" class="text-sm font-semibold text-slate-900">Birthdate</label>
-                                    <input id="register-birthdate" name="birthdate" type="date" value="{{ old('birthdate') }}" class="auth-field mt-2" data-birthdate data-step-required>
+                                    <div class="auth-date-picker mt-2" data-date-picker>
+                                        <input id="register-birthdate" type="text" value="" placeholder="MM/DD/YYYY" inputmode="numeric" autocomplete="bday" pattern="\d{1,2}/\d{1,2}/\d{4}" title="Use MM/DD/YYYY." class="auth-field" data-birthdate data-initial-birthdate="{{ old('birthdate') }}" data-step-required>
+                                        <input id="register-birthdate-value" name="birthdate" type="hidden" value="{{ old('birthdate') }}" data-birthdate-value>
+                                        <button type="button" class="auth-date-picker__toggle" data-date-picker-toggle aria-label="Choose birthdate" aria-expanded="false" aria-controls="register-birthdate-calendar">
+                                            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5.5" width="15" height="14" rx="2" /><path d="M8 3.75v3.5M16 3.75v3.5M4.5 9.5h15" /></svg>
+                                        </button>
+                                        <section id="register-birthdate-calendar" class="auth-date-picker__popover" data-date-picker-popover hidden aria-label="Birthdate calendar">
+                                            <header>
+                                                <button type="button" data-date-picker-previous aria-label="Previous month"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6" /></svg></button>
+                                                <strong data-date-picker-title></strong>
+                                                <button type="button" data-date-picker-next aria-label="Next month"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6" /></svg></button>
+                                            </header>
+                                            <div class="auth-date-picker__weekdays" aria-hidden="true"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+                                            <div class="auth-date-picker__days" data-date-picker-days></div>
+                                            <footer><button type="button" data-date-picker-clear>Clear date</button></footer>
+                                        </section>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div class="mt-4">
-                                <label for="register-disability" class="text-sm font-semibold text-slate-900">Disability</label>
-                                <select id="register-disability" name="disability" class="auth-field mt-2" data-step-required>
-                                    <option value="">Select disability</option>
-                                    @foreach ($disabilityTypes as $disability)
-                                        <option value="{{ $disability }}" @selected(old('disability') === $disability)>{{ $disability }}</option>
-                                    @endforeach
-                                </select>
+                            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label for="register-disability" class="text-sm font-semibold text-slate-900">General Disability Category</label>
+                                    <select id="register-disability" name="disability" class="auth-field mt-2" data-general-disability data-step-required>
+                                        <option value="">Select general disability category</option>
+                                        @foreach ($disabilityTypes as $disability)
+                                            <option value="{{ $disability }}" @selected(old('disability') === $disability)>{{ $disability }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="register-disability-category" class="text-sm font-semibold text-slate-900">Disability Category</label>
+                                    <select id="register-disability-category" name="disability_category" class="auth-field mt-2" data-disability-category data-selected-disability-category="{{ old('disability_category') }}" data-step-required disabled>
+                                        <option value="">Select general category first</option>
+                                    </select>
+                                </div>
                             </div>
 
                             <div class="mt-4">
@@ -357,11 +388,25 @@
                             <div class="mt-5 grid gap-4 sm:grid-cols-2">
                                 <div>
                                     <label for="register-password" class="text-sm font-semibold text-slate-900">Password</label>
-                                    <input id="register-password" name="password" type="password" minlength="8" placeholder="Create a password" class="auth-field mt-2" data-step-required>
+                                    <div class="auth-password-field mt-2">
+                                        <input id="register-password" name="password" type="password" minlength="8" placeholder="Create a password" class="auth-field" data-step-required>
+                                        <button type="button" class="auth-password-toggle" data-password-toggle data-password-target="register-password" aria-controls="register-password" aria-label="Show password" aria-pressed="false" title="Show password">
+                                            <svg data-password-icon="show" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.75" /></svg>
+                                            <svg data-password-icon="hide" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="m3 3 18 18M10.7 6.2A10.8 10.8 0 0 1 12 6c6.1 0 9.5 6 9.5 6a17.8 17.8 0 0 1-3.1 3.8M6.1 6.1A17.7 17.7 0 0 0 2.5 12s3.4 6 9.5 6a10.7 10.7 0 0 0 4.1-.8M9.8 9.8a3.1 3.1 0 0 0 4.4 4.4" /></svg>
+                                            <span class="sr-only" data-password-toggle-text>Show password</span>
+                                        </button>
+                                    </div>
                                 </div>
                                 <div>
                                     <label for="register-password-confirmation" class="text-sm font-semibold text-slate-900">Confirm Password</label>
-                                    <input id="register-password-confirmation" name="password_confirmation" type="password" minlength="8" placeholder="Confirm password" class="auth-field mt-2" data-step-required>
+                                    <div class="auth-password-field mt-2">
+                                        <input id="register-password-confirmation" name="password_confirmation" type="password" minlength="8" placeholder="Confirm password" class="auth-field" data-step-required>
+                                        <button type="button" class="auth-password-toggle" data-password-toggle data-password-target="register-password-confirmation" aria-controls="register-password-confirmation" aria-label="Show password" aria-pressed="false" title="Show password">
+                                            <svg data-password-icon="show" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.75" /></svg>
+                                            <svg data-password-icon="hide" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="m3 3 18 18M10.7 6.2A10.8 10.8 0 0 1 12 6c6.1 0 9.5 6 9.5 6a17.8 17.8 0 0 1-3.1 3.8M6.1 6.1A17.7 17.7 0 0 0 2.5 12s3.4 6 9.5 6a10.7 10.7 0 0 0 4.1-.8M9.8 9.8a3.1 3.1 0 0 0 4.4 4.4" /></svg>
+                                            <span class="sr-only" data-password-toggle-text>Show password</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -371,7 +416,7 @@
                             </label>
                         </div>
 
-                        <div class="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+                        <div class="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between {{ $errors->any() ? '' : 'is-hidden' }}" data-register-actions>
                             <button type="button" class="auth-secondary-button is-hidden" data-register-prev>Back</button>
                             <button type="button" class="auth-primary-button sm:ml-auto" data-register-next>Next</button>
                             <button type="submit" class="auth-primary-button is-hidden sm:ml-auto" data-register-submit>Create Account</button>

@@ -12,7 +12,9 @@ export const initPageTransitions = () => {
     
     const isAuthPath = (pathname) => authPaths.has(normalizePath(pathname));
     const isAdminPath = (pathname) => normalizePath(pathname).startsWith('/admin');
+    const isWorkspacePath = (pathname) => /^\/(?:applicant\/(?:dashboard|profile|review)|employer\/(?:dashboard|profile)|messages)$/.test(normalizePath(pathname));
     let adminNavigationInProgress = false;
+    let workspaceNavigationInProgress = false;
 
     const navigateAdminPage = async (url, { pushState = true } = {}) => {
         const currentMain = document.querySelector('.admin-dashboard-main');
@@ -63,6 +65,73 @@ export const initPageTransitions = () => {
             window.location.assign(url.href);
         } finally {
             adminNavigationInProgress = false;
+        }
+    };
+
+    // Applicant and employer screens share one stable dashboard shell. Loading
+    // only the main content makes these routes feel immediate while retaining
+    // normal Laravel URLs, back/forward support, and a safe full-load fallback.
+    const navigateWorkspacePage = async (url, { pushState = true } = {}) => {
+        const currentMain = document.querySelector('.dashboard-main:not(.admin-dashboard-main)');
+
+        if (!currentMain) {
+            window.location.assign(url.href);
+            return;
+        }
+
+        if (workspaceNavigationInProgress) return;
+
+        workspaceNavigationInProgress = true;
+        currentMain.classList.add('is-workspace-spa-leaving');
+
+        try {
+            const response = await fetch(url.href, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    Accept: 'text/html',
+                },
+                credentials: 'same-origin',
+            });
+
+            if (!response.ok) {
+                throw new Error('Unable to load the selected workspace page.');
+            }
+
+            const page = new DOMParser().parseFromString(await response.text(), 'text/html');
+            const nextMain = page.querySelector('.dashboard-main:not(.admin-dashboard-main)');
+
+            if (!nextMain) {
+                throw new Error('The selected page cannot be loaded in place.');
+            }
+
+            document.dispatchEvent(new CustomEvent('workspace:before-content-replaced'));
+            currentMain.className = nextMain.className;
+            currentMain.innerHTML = nextMain.innerHTML;
+
+            if (page.title) {
+                document.title = page.title;
+            }
+
+            if (pushState) {
+                window.history.pushState({}, '', response.url || url.href);
+            }
+
+            currentMain.classList.add('is-workspace-spa-entering');
+            window.setTimeout(() => currentMain.classList.remove('is-workspace-spa-entering'), 190);
+
+            if (url.hash) {
+                const target = document.getElementById(decodeURIComponent(url.hash.slice(1)));
+                target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            document.dispatchEvent(new CustomEvent('workspace:content-replaced'));
+        } catch {
+            currentMain.classList.remove('is-workspace-spa-leaving');
+            window.location.assign(url.href);
+        } finally {
+            workspaceNavigationInProgress = false;
         }
     };
     
@@ -143,6 +212,17 @@ export const initPageTransitions = () => {
                     return;
                 }
 
+                // The messages screen already swaps conversations in place.
+                // Let that specialized controller handle links within messages.
+                if (
+                    isWorkspacePath(window.location.pathname) &&
+                    isWorkspacePath(url.pathname) &&
+                    !(normalizePath(window.location.pathname) === '/messages' && normalizePath(url.pathname) === '/messages')
+                ) {
+                    navigateWorkspacePage(url);
+                    return;
+                }
+
                 showPageLoader();
                 window.location.assign(url.href);
             }
@@ -152,7 +232,24 @@ export const initPageTransitions = () => {
     window.addEventListener('popstate', () => {
         if (isAdminPath(window.location.pathname)) {
             navigateAdminPage(new URL(window.location.href), { pushState: false });
+        } else if (isWorkspacePath(window.location.pathname)) {
+            navigateWorkspacePage(new URL(window.location.href), { pushState: false });
         }
+    });
+
+    window.addEventListener('workspace:navigate', (event) => {
+        const destination = event.detail?.url;
+
+        if (!destination) return;
+
+        const url = new URL(destination, window.location.href);
+
+        if (url.origin === window.location.origin && isWorkspacePath(url.pathname)) {
+            navigateWorkspacePage(url, { pushState: !event.detail?.replace });
+            return;
+        }
+
+        window.location.assign(url.href);
     });
     
     if (document.readyState === 'loading') {

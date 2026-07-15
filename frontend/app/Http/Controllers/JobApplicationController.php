@@ -11,6 +11,7 @@ use App\Services\ChatService;
 use App\Services\EmployerDocumentService;
 use App\Services\RealtimeService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -22,7 +23,7 @@ class JobApplicationController extends Controller
         ChatService $chatService,
         EmployerDocumentService $documents,
         RealtimeService $realtime,
-    ): RedirectResponse {
+    ): JsonResponse|RedirectResponse {
         /** @var User $applicant */
         $applicant = $request->user();
         abort_unless(
@@ -49,12 +50,10 @@ class JobApplicationController extends Controller
                 $requirementsMessage = null;
 
                 if ($wasCreated) {
-                    $requirements = trim($job->application_requirements
-                        ?: 'Please review the job description and wait for the employer’s next instruction.');
-                    $requirementsMessage = $chatService->send(
+                    $requirementsMessage = $chatService->sendRequirementsCard(
                         $employer,
                         $conversation,
-                        "Application requirements for {$job->title}:\n{$requirements}"
+                        $application,
                     );
                 }
 
@@ -70,6 +69,18 @@ class JobApplicationController extends Controller
 
         if ($wasCreated) {
             $realtime->broadcast(new JobApplicationSubmitted($application, $conversation));
+        }
+
+        $message = $wasCreated
+            ? 'Application submitted. Opening your secure conversation…'
+            : 'You already applied. Opening your secure conversation…';
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'application_id' => $application->id,
+                'conversation_url' => route('messages.index', ['conversation' => $conversation->id]),
+                'message' => $message,
+            ]);
         }
 
         return redirect()

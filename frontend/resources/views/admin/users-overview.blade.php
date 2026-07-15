@@ -83,7 +83,9 @@
                             <td class="admin-user-id">{{ $accountId }}</td>
                             <td>
                                 <div class="admin-user-identity">
-                                    <span class="admin-user-avatar admin-user-avatar--{{ $roleKey }}">{{ Str::upper($initials ?: 'AU') }}</span>
+                                    <span class="admin-user-avatar admin-user-avatar--{{ $roleKey }} {{ $user->profile_photo_url ? 'has-image' : '' }}" data-admin-account-avatar>
+                                        @if ($user->profile_photo_url)<img src="{{ $user->profile_photo_url }}" alt="">@else{{ Str::upper($initials ?: 'AU') }}@endif
+                                    </span>
                                     <span><strong>{{ $user->name }}</strong><small>{{ $user->email }}</small></span>
                                 </div>
                             </td>

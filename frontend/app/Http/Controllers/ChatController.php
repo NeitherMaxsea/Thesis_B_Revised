@@ -7,15 +7,18 @@ use App\Events\MessagesRead;
 use App\Http\Requests\StoreMessageRequest;
 use App\Models\Conversation;
 use App\Models\ConversationSetting;
+use App\Models\JobApplication;
 use App\Models\Message;
 use App\Models\MessageReaction;
 use App\Models\User;
 use App\Services\ChatService;
 use App\Services\RealtimeService;
+use Illuminate\Support\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -52,6 +55,17 @@ class ChatController extends Controller
 
         if ($selectedBase instanceof Conversation) {
             $selectedConversation = $this->chatService->findConversationFor($user, $selectedBase, true);
+            $synchronizedTimeline = $this->chatService
+                ->synchronizeAcknowledgedRequirementsTimeline($selectedConversation);
+
+            if ($synchronizedTimeline !== null) {
+                $conversations = $this->chatService->conversationsFor($user);
+                $selectedConversation = $this->chatService->findConversationFor(
+                    $user,
+                    $selectedConversation->fresh(),
+                    true,
+                );
+            }
         }
 
         return view('dashboard.messages', [
@@ -118,6 +132,237 @@ class ChatController extends Controller
         return redirect()
             ->route('messages.index', ['conversation' => $conversation->id])
             ->with('status', 'Message sent.');
+    }
+
+    /**
+     * Only the employer who owns the job may move an application through its
+     * hiring stages. The applicant sees the same state in their conversation.
+     */
+    public function updateApplicationStage(Request $request, string $conversation): JsonResponse|RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $conversation = Conversation::query()
+            ->forParticipant($user->id)
+            ->with('jobApplication.job:id,user_id')
+            ->findOrFail($conversation);
+        $application = $conversation->jobApplication;
+
+        abort_unless(
+            $user->account_type === 'employer'
+                && $application instanceof JobApplication
+                && (int) $application->job?->user_id === (int) $user->id,
+            403
+        );
+
+        $status = $request->validate([
+            'status' => ['required', 'string', Rule::in(array_keys(JobApplication::hiringStages()))],
+        ])['status'];
+
+        $application->update(['status' => $status]);
+        $timeline = $application->fresh()->hiringStagePayload();
+
+        if ($request->expectsJson()) {
+            return response()->json(['application_timeline' => $timeline]);
+        }
+
+        return redirect()
+            ->route('messages.index', ['conversation' => $conversation->id])
+            ->with('status', 'Hiring stage updated to '.$timeline['title'].'.');
+    }
+
+    /**
+     * Employers use the hiring-actions menu to send a structured interview,
+     * skills-assessment, or documents card to an applicant.
+     */
+    public function sendHiringAction(Request $request, string $conversation): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $conversation = Conversation::query()
+            ->forParticipant($user->id)
+            ->with('jobApplication.job:id,user_id')
+            ->findOrFail($conversation);
+        $application = $conversation->jobApplication;
+
+        abort_unless(
+            $user->account_type === 'employer'
+                && $application instanceof JobApplication
+                && (int) $application->job?->user_id === (int) $user->id,
+            403
+        );
+
+        $action = $request->validate([
+            'action' => ['required', 'string', Rule::in(['interview', 'assessment', 'documents'])],
+        ])['action'];
+        $targetStage = null;
+
+        if ($action === 'interview') {
+            $data = $request->validate([
+                'interview_date' => ['required', 'date'],
+                'interview_time' => ['required', 'date_format:H:i'],
+                'interview_method' => ['required', 'string', 'max:80'],
+                'meeting_link' => ['nullable', 'url', 'max:1000'],
+                'details' => ['nullable', 'string', 'max:1500'],
+            ]);
+            $date = Carbon::parse($data['interview_date'])->format('M j, Y');
+            $metadata = [
+                'action' => 'interview',
+                'eyebrow' => 'Imbitasyon sa interview',
+                'title' => 'Iskedyul ng interview',
+                'intro' => 'Na-shortlist ka para sa interview. Pakisuri ang detalye sa ibaba.',
+                'details' => array_values(array_filter([
+                    ['label' => 'Petsa', 'value' => $date],
+                    ['label' => 'Oras', 'value' => Carbon::createFromFormat('H:i', $data['interview_time'])->format('g:i A')],
+                    ['label' => 'Paraan', 'value' => $data['interview_method']],
+                    ['label' => 'Meeting link', 'value' => $data['meeting_link'] ?? null],
+                    ['label' => 'Karagdagang detalye', 'value' => $data['details'] ?? null],
+                ], fn (array $item) => filled($item['value']))),
+            ];
+            $body = "May interview invitation para sa iyo sa {$date}.";
+            $targetStage = 'interview_schedule';
+        } elseif ($action === 'assessment') {
+            $data = $request->validate([
+                'assessment_title' => ['required', 'string', 'max:160'],
+                'assessment_link' => ['nullable', 'url', 'max:1000'],
+                'assessment_instructions' => ['required', 'string', 'max:1500'],
+            ]);
+            $metadata = [
+                'action' => 'assessment',
+                'eyebrow' => 'Skills assessment',
+                'title' => $data['assessment_title'],
+                'intro' => 'May ipinadalang skills assessment ang employer para mas maipakita mo ang iyong kakayahan.',
+                'details' => array_values(array_filter([
+                    ['label' => 'Panuto', 'value' => $data['assessment_instructions']],
+                    ['label' => 'Assessment link', 'value' => $data['assessment_link'] ?? null],
+                ], fn (array $item) => filled($item['value']))),
+            ];
+            $body = "May skills assessment para sa iyo: {$data['assessment_title']}.";
+        } else {
+            $data = $request->validate([
+                'documents_title' => ['required', 'string', 'max:160'],
+                'documents' => ['required', 'string', 'max:3000'],
+                'documents_note' => ['nullable', 'string', 'max:1500'],
+            ]);
+            $items = collect(preg_split('/\r\n|\r|\n/', trim($data['documents'])) ?: [])
+                ->map(fn (string $item) => trim((string) preg_replace('/^\s*(?:[-*•]|\d+[.)])\s*/u', '', $item)))
+                ->filter()
+                ->take(12)
+                ->values()
+                ->all();
+            abort_if($items === [], 422, 'Maglagay ng kahit isang dokumento.');
+            $metadata = [
+                'action' => 'documents',
+                'eyebrow' => 'Mga dokumentong kailangan',
+                'title' => $data['documents_title'],
+                'intro' => $data['documents_note'] ?: 'Pakihanda at isumite ang mga sumusunod na dokumento.',
+                'items' => $items,
+            ];
+            $body = "May hinihinging mga dokumento ang employer: {$data['documents_title']}.";
+            $targetStage = 'pre_employment_requirements';
+        }
+
+        [$message, $timeline] = DB::transaction(function () use ($user, $conversation, $application, $body, $metadata, $targetStage) {
+            $lockedApplication = JobApplication::query()->lockForUpdate()->findOrFail($application->id);
+            $timeline = $lockedApplication->hiringStagePayload();
+
+            if ($targetStage !== null
+                && JobApplication::hiringStages()[$targetStage]['number'] > $timeline['number']) {
+                $lockedApplication->update(['status' => $targetStage]);
+                $timeline = $lockedApplication->fresh()->hiringStagePayload();
+            }
+
+            $message = $this->chatService->sendHiringActionCard($user, $conversation, $body, $metadata);
+
+            return [$message, $timeline];
+        });
+
+        $this->realtime->broadcast(new MessageSent($message));
+
+        return response()->json([
+            'message' => $this->chatService->messagePayload($message),
+            'application_timeline' => $timeline,
+        ], 201);
+    }
+
+    /**
+     * Lets only the applicant confirm that they have received an employer's
+     * requirement card. The confirmation also becomes a normal chat message
+     * so the employer receives it even without refreshing the conversation.
+     */
+    public function acknowledgeRequirements(Request $request, string $conversation, string $message): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $conversation = Conversation::query()
+            ->forParticipant($user->id)
+            ->with('jobApplication')
+            ->findOrFail($conversation);
+        $application = $conversation->jobApplication;
+
+        abort_unless(
+            $user->account_type === 'pwd_applicant'
+                && $application instanceof JobApplication
+                && (int) $application->applicant_id === (int) $user->id,
+            403
+        );
+
+        [$requirementsCard, $reply, $timeline] = DB::transaction(function () use ($conversation, $message, $user, $application) {
+            $requirementsCard = Message::query()
+                ->where('conversation_id', $conversation->id)
+                ->lockForUpdate()
+                ->findOrFail($message);
+
+            abort_unless(
+                $requirementsCard->message_type === Message::TYPE_REQUIREMENTS_CARD
+                    && (int) $requirementsCard->sender_id !== (int) $user->id,
+                422,
+                'This requirements card cannot be confirmed.'
+            );
+
+            $lockedApplication = JobApplication::query()
+                ->lockForUpdate()
+                ->findOrFail($application->id);
+            $metadata = $requirementsCard->metadata ?? [];
+            $reply = null;
+            $timeline = $lockedApplication->hiringStagePayload();
+
+            if (empty($metadata['acknowledged_at'])) {
+                $metadata['acknowledged_at'] = now()->toIso8601String();
+                $metadata['acknowledged_by'] = $user->id;
+                $nextStage = $metadata['next_stage'] ?? $lockedApplication->nextHiringStage();
+
+                if (is_string($nextStage)
+                    && isset(JobApplication::hiringStages()[$nextStage])
+                    && JobApplication::hiringStages()[$nextStage]['number'] > $timeline['number']) {
+                    $lockedApplication->update(['status' => $nextStage]);
+                    $timeline = $lockedApplication->fresh()->hiringStagePayload();
+                }
+
+                $metadata['timeline_processed_at'] = now()->toIso8601String();
+                $metadata['advanced_to'] = $timeline['status'];
+                $requirementsCard->update(['metadata' => $metadata]);
+                $requirementsCard->refresh();
+
+                $reply = $this->chatService->send(
+                    $user,
+                    $conversation,
+                    'Nabasa ko po ang mga requirement. Ihahanda ko po ang mga ito.',
+                );
+            }
+
+            return [$requirementsCard, $reply, $timeline];
+        });
+
+        if ($reply instanceof Message) {
+            $this->realtime->broadcast(new MessageSent($reply));
+        }
+
+        return response()->json([
+            'requirements_card' => $this->chatService->messagePayload($requirementsCard),
+            'reply' => $reply instanceof Message ? $this->chatService->messagePayload($reply) : null,
+            'application_timeline' => $timeline,
+        ]);
     }
 
     public function markRead(Request $request, string $conversation): JsonResponse
@@ -188,12 +433,13 @@ class ChatController extends Controller
         $user = $request->user();
         $conversation = Conversation::query()
             ->forParticipant($user->id)
+            ->with('jobApplication')
             ->findOrFail($conversation);
         $afterMessageId = max(0, $request->integer('after'));
 
         $messages = $conversation->messages()
             ->where('id', '>', $afterMessageId)
-            ->with('sender:id,name,first_name,last_name,company_name,account_type')
+            ->with('sender:id,name,first_name,last_name,company_name,account_type,profile_photo_path')
             ->oldest()
             ->limit(100)
             ->get();
@@ -232,6 +478,7 @@ class ChatController extends Controller
                     'reactions' => $this->chatService->messageReactionsPayload($message),
                 ])
                 ->values(),
+            'application_timeline' => $conversation->jobApplication?->hiringStagePayload(),
         ]);
     }
 
@@ -252,7 +499,7 @@ class ChatController extends Controller
             ->whereHas('conversation', fn ($query) => $query
                 ->forParticipant($user->id)
                 ->visibleTo($user->id))
-            ->with('sender:id,name,first_name,last_name,company_name,account_type')
+            ->with('sender:id,name,first_name,last_name,company_name,account_type,profile_photo_path')
             ->latest('id')
             ->limit(100)
             ->get()

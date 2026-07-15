@@ -3,6 +3,12 @@ import Swal from 'sweetalert2';
 let chatPresenceTimer;
 let chatUpdatesTimer;
 let chatReactionPicker;
+let activeChatCleanup = () => {};
+
+export const destroyApplicantChat = () => {
+    activeChatCleanup();
+    activeChatCleanup = () => {};
+};
 
 // Secure one-to-one chat. Laravel persists messages first; Echo only mirrors the
 // persisted payload into the existing interface.
@@ -16,6 +22,7 @@ export const initApplicantChat = () => {
     chat.dataset.chatInitialized = 'true';
 
     const currentUserId = Number(chat.dataset.currentUserId);
+    const currentAccountType = chat.dataset.accountType;
     const conversationId = chat.dataset.conversationId;
     const sendUrl = chat.dataset.sendUrl;
     const markReadUrl = chat.dataset.markReadUrl;
@@ -25,6 +32,8 @@ export const initApplicantChat = () => {
     const deleteUrl = chat.dataset.deleteUrl;
     const muteUrl = chat.dataset.muteUrl;
     const reactionUrlTemplate = chat.dataset.reactionUrlTemplate;
+    const requirementsAcknowledgeUrlTemplate = chat.dataset.requirementsAcknowledgeUrlTemplate;
+    const hiringActionsUrl = chat.dataset.hiringActionsUrl;
     const messagesIndexUrl = chat.dataset.messagesIndexUrl;
     const messages = chat.querySelector('[data-chat-messages]');
     const liveStatus = chat.querySelector('[data-chat-live-status]');
@@ -53,6 +62,11 @@ export const initApplicantChat = () => {
         label.className = 'sr-only';
         label.htmlFor = 'chat-message-body';
         label.textContent = 'Write a message';
+
+        const attachmentPreview = document.createElement('div');
+        attachmentPreview.className = 'applicant-chat__attachment-preview';
+        attachmentPreview.dataset.chatAttachmentPreview = '';
+        attachmentPreview.hidden = true;
 
         const attachmentLabel = document.createElement('label');
         attachmentLabel.className = 'applicant-chat__attach-button';
@@ -90,7 +104,7 @@ export const initApplicantChat = () => {
         status.dataset.chatComposerStatus = '';
         status.setAttribute('role', 'status');
 
-        composer.append(label, attachmentLabel, input, button, status);
+        composer.append(label, attachmentPreview, attachmentLabel, input, button, status);
         conversationPanel.append(composer);
     };
 
@@ -99,9 +113,23 @@ export const initApplicantChat = () => {
     const form = chat.querySelector('[data-chat-send-form]');
     const input = chat.querySelector('[data-chat-message-input]');
     const attachmentInput = chat.querySelector('[data-chat-attachment-input]');
+    const attachmentPreview = chat.querySelector('[data-chat-attachment-preview]');
     const sendButton = chat.querySelector('[data-chat-send-button]');
     const activeComposerStatus = chat.querySelector('[data-chat-composer-status]');
     const settingsStatus = chat.querySelector('[data-chat-settings-status]');
+    const hiringTimeline = chat.querySelector('[data-hiring-timeline]');
+    const hiringStageForm = chat.querySelector('[data-hiring-stage-form]');
+    const hiringStageSelect = chat.querySelector('[data-hiring-stage-select]');
+    const hiringStageSubmit = chat.querySelector('[data-hiring-stage-submit]');
+    const hiringStageStatus = chat.querySelector('[data-hiring-stage-status]');
+    const hiringActions = chat.querySelector('[data-hiring-actions]');
+    const hiringActionDialog = chat.querySelector('[data-hiring-action-dialog]');
+    const hiringActionForm = chat.querySelector('[data-hiring-action-form]');
+    const hiringActionInput = chat.querySelector('[data-hiring-action-input]');
+    const hiringActionTitle = chat.querySelector('[data-hiring-action-title]');
+    const hiringActionDescription = chat.querySelector('[data-hiring-action-description]');
+    const hiringActionStatus = chat.querySelector('[data-hiring-action-status]');
+    const hiringActionSubmit = chat.querySelector('[data-hiring-action-submit]');
     const reactionEmojis = ['👍', '❤️', '😊'];
 
     let readInFlight = false;
@@ -139,6 +167,74 @@ export const initApplicantChat = () => {
         activeComposerStatus.classList.toggle('is-error', isError);
     };
 
+    let attachmentPreviewUrl = '';
+
+    const clearAttachmentPreview = ({ clearInput = false } = {}) => {
+        if (attachmentPreviewUrl) {
+            URL.revokeObjectURL(attachmentPreviewUrl);
+            attachmentPreviewUrl = '';
+        }
+
+        if (attachmentPreview) {
+            attachmentPreview.replaceChildren();
+            attachmentPreview.hidden = true;
+        }
+
+        conversationPanel?.classList.remove('has-attachment-preview');
+
+        if (clearInput && attachmentInput) {
+            attachmentInput.value = '';
+        }
+    };
+
+    const showAttachmentPreview = (attachment) => {
+        if (!attachmentPreview || !attachment) {
+            return;
+        }
+
+        clearAttachmentPreview();
+        attachmentPreviewUrl = URL.createObjectURL(attachment);
+
+        const media = attachment.type.startsWith('image/')
+            ? document.createElement('img')
+            : document.createElement('video');
+
+        media.src = attachmentPreviewUrl;
+        media.className = 'applicant-chat__attachment-preview-media';
+
+        if (media instanceof HTMLImageElement) {
+            media.alt = `Preview of ${attachment.name}`;
+        } else {
+            media.muted = true;
+            media.preload = 'metadata';
+            media.controls = true;
+            media.setAttribute('aria-label', `Preview of ${attachment.name}`);
+        }
+
+        const details = document.createElement('span');
+        details.className = 'applicant-chat__attachment-preview-copy';
+        const name = document.createElement('strong');
+        name.textContent = attachment.name;
+        const size = document.createElement('small');
+        size.textContent = `${Math.max(1, Math.ceil(attachment.size / 1024))} KB · Ready to send`;
+        details.append(name, size);
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'applicant-chat__attachment-preview-remove';
+        remove.setAttribute('aria-label', 'Remove attachment');
+        remove.textContent = '×';
+        remove.addEventListener('click', () => {
+            clearAttachmentPreview({ clearInput: true });
+            setComposerStatus('Attachment removed.');
+            input?.focus();
+        });
+
+        attachmentPreview.append(media, details, remove);
+        attachmentPreview.hidden = false;
+        conversationPanel?.classList.add('has-attachment-preview');
+    };
+
     const setSettingsStatus = (mutedUntil = '') => {
         if (!settingsStatus) {
             return;
@@ -148,6 +244,172 @@ export const initApplicantChat = () => {
         settingsStatus.textContent = mutedDate && mutedDate > new Date()
             ? 'Notifications muted'
             : 'Notifications on';
+    };
+
+    const setHiringStageStatus = (message = '', isError = false) => {
+        if (!hiringStageStatus) {
+            return;
+        }
+
+        hiringStageStatus.textContent = message;
+        hiringStageStatus.classList.toggle('is-error', isError);
+    };
+
+    const hiringActionCopy = {
+        interview: {
+            title: 'Mag-schedule ng interview',
+            description: 'Ilagay ang petsa, oras, at paraan bago ipadala sa applicant.',
+        },
+        assessment: {
+            title: 'Magpadala ng skills assessment',
+            description: 'Magbigay ng assessment invitation at malinaw na panuto.',
+        },
+        documents: {
+            title: 'Humingi ng documents',
+            description: 'Gumawa ng document checklist na matatanggap ng applicant.',
+        },
+    };
+
+    const setHiringActionStatus = (message = '', isError = false) => {
+        if (!hiringActionStatus) {
+            return;
+        }
+
+        hiringActionStatus.textContent = message;
+        hiringActionStatus.classList.toggle('is-error', isError);
+    };
+
+    const selectHiringAction = (action) => {
+        if (!hiringActionForm || !hiringActionInput || !hiringActionCopy[action]) {
+            return;
+        }
+
+        hiringActionInput.value = action;
+        hiringActionTitle.textContent = hiringActionCopy[action].title;
+        hiringActionDescription.textContent = hiringActionCopy[action].description;
+        hiringActionForm.querySelectorAll('[data-hiring-action-fields]').forEach((fields) => {
+            const isActive = fields.dataset.hiringActionFields === action;
+            fields.hidden = !isActive;
+            fields.querySelectorAll('input, textarea, select').forEach((field) => {
+                field.disabled = !isActive;
+            });
+        });
+    };
+
+    chat.querySelectorAll('[data-hiring-action-open]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const action = button.dataset.hiringActionOpen;
+            selectHiringAction(action);
+            hiringActions?.removeAttribute('open');
+            setHiringActionStatus();
+            hiringActionDialog?.showModal();
+            hiringActionDialog?.querySelector('[data-hiring-action-fields]:not([hidden]) input, [data-hiring-action-fields]:not([hidden]) textarea, [data-hiring-action-fields]:not([hidden]) select')?.focus();
+        });
+    });
+
+    chat.querySelectorAll('[data-hiring-action-close]').forEach((button) => {
+        button.addEventListener('click', () => {
+            hiringActionDialog?.close();
+        });
+    });
+
+    hiringActionDialog?.addEventListener('click', (event) => {
+        if (event.target === hiringActionDialog) {
+            hiringActionDialog.close();
+        }
+    });
+
+    hiringActionForm?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        if (!hiringActionsUrl || !hiringActionForm.checkValidity()) {
+            hiringActionForm.reportValidity();
+            return;
+        }
+
+        setHiringActionStatus();
+        const originalText = hiringActionSubmit?.textContent ?? 'Ipadala sa applicant';
+        if (hiringActionSubmit) {
+            hiringActionSubmit.disabled = true;
+            hiringActionSubmit.textContent = 'Ipinapadala…';
+        }
+
+        try {
+            const response = await window.axios.post(hiringActionsUrl, new FormData(hiringActionForm), {
+                headers: { Accept: 'application/json' },
+            });
+            createMessage(response.data.message);
+            syncConversationContact(response.data.message);
+            updateHiringTimeline(response.data.application_timeline);
+            setComposerStatus('Naipadala ang hiring card sa applicant.');
+            hiringActionDialog?.close();
+            hiringActionForm.reset();
+            selectHiringAction('interview');
+        } catch (error) {
+            const errors = error.response?.data?.errors;
+            const message = errors
+                ? Object.values(errors).flat()[0]
+                : (error.response?.data?.message ?? 'Hindi naipadala ang hiring card. Subukan muli.');
+            setHiringActionStatus(message, true);
+        } finally {
+            if (hiringActionSubmit) {
+                hiringActionSubmit.disabled = false;
+                hiringActionSubmit.textContent = originalText;
+            }
+        }
+    });
+
+    const updateHiringTimeline = (timeline) => {
+        if (!hiringTimeline || !timeline || !Number.isInteger(Number(timeline.number))) {
+            return;
+        }
+
+        const currentStage = Number(timeline.number);
+        hiringTimeline.dataset.currentStage = String(currentStage);
+
+        const title = hiringTimeline.querySelector('[data-hiring-stage-title]');
+        const progress = hiringTimeline.querySelector('[data-hiring-stage-progress]');
+        const stages = [...hiringTimeline.querySelectorAll('[data-hiring-stage]')];
+        const stagesTrack = hiringTimeline.querySelector('.applicant-chat__hiring-stages');
+
+        if (title && timeline.title) {
+            title.textContent = timeline.title;
+        }
+
+        if (progress) {
+            progress.textContent = `Step ${currentStage} of ${stages.length}`;
+        }
+
+        if (stagesTrack) {
+            const completedProgress = Math.max(0, currentStage - 1) / Math.max(1, stages.length - 1);
+            stagesTrack.style.setProperty('--hiring-progress', `${completedProgress * 80}%`);
+        }
+
+        stages.forEach((stage) => {
+            const stageNumber = Number(stage.dataset.stageNumber);
+            const isCurrent = stageNumber === currentStage;
+            const isCompleted = stageNumber < currentStage;
+            const state = stage.querySelector('[data-hiring-stage-state]');
+
+            stage.classList.toggle('is-current', isCurrent);
+            stage.classList.toggle('is-completed', isCompleted);
+
+            if (isCurrent) {
+                stage.setAttribute('aria-current', 'step');
+            } else {
+                stage.removeAttribute('aria-current');
+            }
+
+            if (state) {
+                state.textContent = isCurrent
+                    ? 'Current stage'
+                    : (isCompleted ? 'Completed stage' : 'Upcoming stage');
+            }
+        });
+
+        if (hiringStageSelect && timeline.status) {
+            hiringStageSelect.value = timeline.status;
+        }
     };
 
     const scrollToLatestMessage = () => {
@@ -354,6 +616,23 @@ export const initApplicantChat = () => {
         return accountType === 'employer' ? 'Employer' : 'PWD Applicant';
     };
 
+    const renderAvatar = (avatar, user = {}) => {
+        if (!avatar) return;
+
+        avatar.dataset.chatAvatarUserId = String(user.id ?? '');
+        avatar.classList.toggle('has-image', Boolean(user.photo_url));
+
+        if (user.photo_url) {
+            const image = document.createElement('img');
+            image.src = user.photo_url;
+            image.alt = '';
+            avatar.replaceChildren(image);
+            return;
+        }
+
+        avatar.textContent = user.initials ?? '';
+    };
+
     const createInboxConversationContact = (message) => {
         const targetConversationId = String(message?.conversation_id ?? '');
 
@@ -381,7 +660,7 @@ export const initApplicantChat = () => {
         const avatar = document.createElement('span');
         avatar.className = 'applicant-chat__avatar';
         avatar.setAttribute('aria-hidden', 'true');
-        avatar.textContent = message.sender.initials ?? '';
+        renderAvatar(avatar, message.sender);
 
         const copy = document.createElement('span');
         copy.className = 'applicant-chat__contact-copy';
@@ -525,7 +804,16 @@ export const initApplicantChat = () => {
         encodeURIComponent(String(messageId)),
     );
 
+    const requirementsAcknowledgeUrl = (messageId) => requirementsAcknowledgeUrlTemplate?.replace(
+        '__message__',
+        encodeURIComponent(String(messageId)),
+    );
+
     const messagePreview = (message) => {
+        if (message?.message_type === 'requirements_card') {
+            return 'May ipinadalang requirement card';
+        }
+
         if (typeof message?.body === 'string' && message.body.trim() !== '') {
             return message.body;
         }
@@ -569,6 +857,180 @@ export const initApplicantChat = () => {
         return media;
     };
 
+    const requirementCheckIcon = () => {
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        icon.setAttribute('viewBox', '0 0 24 24');
+        icon.setAttribute('aria-hidden', 'true');
+        icon.innerHTML = '<path d="m5 12.5 4.2 4L19 6.8"></path>';
+        return icon;
+    };
+
+    const createRequirementsCard = (message, isMine) => {
+        if (message?.message_type !== 'requirements_card') {
+            return null;
+        }
+
+        const metadata = message.metadata && typeof message.metadata === 'object'
+            ? message.metadata
+            : {};
+        const card = document.createElement('section');
+        card.className = 'applicant-chat__requirements-card';
+        card.dataset.requirementsCard = '';
+        card.dataset.messageId = String(message.id);
+        card.setAttribute('aria-label', 'Mga requirement para sa aplikasyon');
+
+        const header = document.createElement('header');
+        const iconWrap = document.createElement('span');
+        iconWrap.className = 'applicant-chat__requirements-icon';
+        iconWrap.setAttribute('aria-hidden', 'true');
+        iconWrap.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 4.5h6M9 3h6a1.5 1.5 0 0 1 1.5 1.5v1A1.5 1.5 0 0 1 15 7H9a1.5 1.5 0 0 1-1.5-1.5v-1A1.5 1.5 0 0 1 9 3Z"></path><path d="M7 5.5H5.75A1.75 1.75 0 0 0 4 7.25v12A1.75 1.75 0 0 0 5.75 21h12a1.75 1.75 0 0 0 1.75-1.75v-12A1.75 1.75 0 0 0 17.75 5.5H16"></path><path d="m8 13 2 2 5-5"></path></svg>';
+        const heading = document.createElement('span');
+        const eyebrow = document.createElement('p');
+        eyebrow.textContent = 'Checklist ng kailangan';
+        const title = document.createElement('h3');
+        title.textContent = metadata.heading || 'Mga kailangang ihanda';
+        heading.append(eyebrow, title);
+        header.append(iconWrap, heading);
+
+        const acknowledged = Boolean(metadata.acknowledged_at);
+        if (acknowledged) {
+            const badge = document.createElement('b');
+            badge.className = 'is-confirmed';
+            badge.textContent = 'Nabasa na';
+            header.append(badge);
+        }
+
+        card.append(header);
+
+        if (metadata.job_title) {
+            const job = document.createElement('p');
+            job.className = 'applicant-chat__requirements-job';
+            job.textContent = `Para sa: ${metadata.job_title}`;
+            card.append(job);
+        }
+
+        const intro = document.createElement('p');
+        intro.className = 'applicant-chat__requirements-intro';
+        intro.textContent = metadata.intro || 'Pakihanda ang mga sumusunod para sa iyong aplikasyon.';
+        card.append(intro);
+
+        const list = document.createElement('ul');
+        list.className = 'applicant-chat__requirements-list';
+        const requirements = Array.isArray(metadata.items) ? metadata.items : [];
+        const items = requirements.filter((item) => item && typeof item.label === 'string' && item.label.trim() !== '');
+
+        (items.length > 0 ? items : [{
+            label: 'Hintayin ang susunod na mensahe ng employer.',
+            status: 'Wala pang dagdag na dokumento',
+        }]).forEach((item) => {
+            const row = document.createElement('li');
+            const check = document.createElement('span');
+            check.setAttribute('aria-hidden', 'true');
+            check.append(requirementCheckIcon());
+            const copy = document.createElement('div');
+            const label = document.createElement('strong');
+            label.textContent = item.label;
+            const status = document.createElement('small');
+            status.textContent = item.status || 'Kailangang ihanda';
+            copy.append(label, status);
+            row.append(check, copy);
+            list.append(row);
+        });
+        card.append(list);
+
+        if (!isMine && currentAccountType === 'pwd_applicant' && !acknowledged) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'applicant-chat__requirements-confirm';
+            button.dataset.requirementsAcknowledge = '';
+            button.dataset.requirementsAcknowledgeUrl = requirementsAcknowledgeUrl(message.id) || '';
+            button.textContent = 'Nabasa ko, ihahanda ko ito';
+            card.append(button);
+        } else if (acknowledged) {
+            const confirmed = document.createElement('p');
+            confirmed.className = 'applicant-chat__requirements-confirmed';
+            confirmed.textContent = 'Nabasa na ng applicant at ihahanda niya ang mga requirement.';
+            card.append(confirmed);
+        }
+
+        return card;
+    };
+
+    const createHiringActionCard = (message) => {
+        if (message?.message_type !== 'hiring_action') {
+            return null;
+        }
+
+        const metadata = message.metadata && typeof message.metadata === 'object'
+            ? message.metadata
+            : {};
+        const card = document.createElement('section');
+        card.className = `applicant-chat__hiring-card applicant-chat__hiring-card--${metadata.action || 'notice'}`;
+        card.setAttribute('aria-label', metadata.title || 'Hiring update');
+
+        const header = document.createElement('header');
+        const icon = document.createElement('span');
+        icon.className = 'applicant-chat__hiring-card-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.innerHTML = metadata.action === 'documents'
+            ? '<svg viewBox="0 0 24 24"><path d="M7 3.5h7l3 3V20.5H7z"></path><path d="M14 3.5v4h3M9.5 12h5M9.5 15.5h5"></path></svg>'
+            : (metadata.action === 'assessment'
+                ? '<svg viewBox="0 0 24 24"><path d="M4 5.5h16v13H4z"></path><path d="M8 9h8M8 12h4M8 15h5"></path></svg>'
+                : '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17h6"></path></svg>');
+        const copy = document.createElement('span');
+        const eyebrow = document.createElement('p');
+        eyebrow.textContent = metadata.eyebrow || 'Hiring update';
+        const title = document.createElement('h3');
+        title.textContent = metadata.title || 'May bagong update ang employer';
+        copy.append(eyebrow, title);
+        header.append(icon, copy);
+        card.append(header);
+
+        if (metadata.intro) {
+            const intro = document.createElement('p');
+            intro.className = 'applicant-chat__hiring-card-intro';
+            intro.textContent = metadata.intro;
+            card.append(intro);
+        }
+
+        const details = Array.isArray(metadata.details) ? metadata.details : [];
+        if (details.length > 0) {
+            const list = document.createElement('dl');
+            list.className = 'applicant-chat__hiring-card-details';
+            details.forEach((detail) => {
+                if (!detail || !detail.label || !detail.value) {
+                    return;
+                }
+                const row = document.createElement('div');
+                const label = document.createElement('dt');
+                label.textContent = detail.label;
+                const value = document.createElement('dd');
+                value.textContent = detail.value;
+                row.append(label, value);
+                list.append(row);
+            });
+            if (list.childElementCount > 0) {
+                card.append(list);
+            }
+        }
+
+        const items = Array.isArray(metadata.items) ? metadata.items : [];
+        if (items.length > 0) {
+            const list = document.createElement('ul');
+            list.className = 'applicant-chat__hiring-card-items';
+            items.filter((item) => typeof item === 'string' && item.trim() !== '').forEach((item) => {
+                const row = document.createElement('li');
+                row.textContent = item;
+                list.append(row);
+            });
+            if (list.childElementCount > 0) {
+                card.append(list);
+            }
+        }
+
+        return card;
+    };
+
     const createMessage = (message) => {
         if (
             !messages
@@ -584,6 +1046,8 @@ export const initApplicantChat = () => {
         const isMine = Number(message.sender.id) === currentUserId;
         const row = document.createElement('div');
         row.className = `applicant-chat__message${isMine ? ' is-mine' : ''}`;
+        row.classList.toggle('has-requirements-card', message.message_type === 'requirements_card');
+        row.classList.toggle('has-hiring-card', message.message_type === 'hiring_action');
         row.dataset.messageId = String(message.id);
         row.dataset.messageSenderId = String(message.sender.id);
 
@@ -591,7 +1055,7 @@ export const initApplicantChat = () => {
             const avatar = document.createElement('span');
             avatar.className = 'applicant-chat__message-avatar';
             avatar.setAttribute('aria-hidden', 'true');
-            avatar.textContent = message.sender.initials ?? '';
+            renderAvatar(avatar, message.sender);
             row.append(avatar);
         }
 
@@ -604,6 +1068,8 @@ export const initApplicantChat = () => {
         }
 
         const attachment = createAttachmentPreview(message.attachment);
+        const requirementsCard = createRequirementsCard(message, isMine);
+        const hiringActionCard = createHiringActionCard(message);
         const body = document.createElement('p');
         body.textContent = message.body ?? '';
         const time = document.createElement('time');
@@ -614,7 +1080,11 @@ export const initApplicantChat = () => {
             content.append(attachment);
         }
 
-        if (body.textContent.trim() !== '') {
+        if (requirementsCard) {
+            content.append(requirementsCard);
+        } else if (hiringActionCard) {
+            content.append(hiringActionCard);
+        } else if (body.textContent.trim() !== '') {
             content.append(body);
         }
 
@@ -639,6 +1109,63 @@ export const initApplicantChat = () => {
 
         return true;
     };
+
+    const replaceRequirementsCard = (message) => {
+        const card = createRequirementsCard(
+            message,
+            Number(message?.sender?.id) === currentUserId,
+        );
+        const currentCard = messages?.querySelector(
+            `[data-requirements-card][data-message-id="${Number(message?.id)}"]`,
+        );
+
+        if (card && currentCard) {
+            currentCard.replaceWith(card);
+        }
+    };
+
+    messages?.addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-requirements-acknowledge]');
+
+        if (!button || button.disabled) {
+            return;
+        }
+
+        const url = button.dataset.requirementsAcknowledgeUrl;
+
+        if (!url) {
+            setComposerStatus('Hindi maipadala ang kumpirmasyon. Subukan muli.', true);
+            return;
+        }
+
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.textContent = 'Ikinukumpirma…';
+
+        try {
+            const response = await window.axios.post(url, {}, {
+                headers: { Accept: 'application/json' },
+            });
+            const card = response.data.requirements_card;
+            const reply = response.data.reply;
+
+            replaceRequirementsCard(card);
+            updateHiringTimeline(response.data.application_timeline);
+
+            if (reply) {
+                createMessage(reply);
+                syncConversationContact(reply);
+            }
+
+            setComposerStatus('Naipaalam na sa employer na ihahanda mo ang mga requirement.');
+        } catch (error) {
+            const message = error.response?.data?.message
+                ?? 'Hindi maipadala ang kumpirmasyon. Subukan muli.';
+            setComposerStatus(message, true);
+            button.disabled = false;
+            button.textContent = originalText;
+        }
+    });
 
     const setMessageSeen = (messageId, readAt = '') => {
         if (!messages) {
@@ -713,6 +1240,7 @@ export const initApplicantChat = () => {
 
         if (Number(message.sender?.id) !== currentUserId) {
             markConversationRead();
+            syncConversationUpdates();
         }
     };
 
@@ -894,6 +1422,7 @@ export const initApplicantChat = () => {
                 setMessageReactions(messageId, reactions);
             });
             setTyping(response.data?.typing?.is_typing === true, response.data?.typing?.user_id);
+            updateHiringTimeline(response.data?.application_timeline);
         } catch {
             // The next interval retries. Messaging remains available as soon as
             // either Reverb or this authenticated recovery request responds.
@@ -973,6 +1502,7 @@ export const initApplicantChat = () => {
                 window.Echo.leave(`chat.conversation.${conversationId}`);
             }
 
+            destroyApplicantChat();
             chat.replaceWith(nextChat);
             document.title = page.title || document.title;
             window.history.pushState({}, '', response.url || targetUrl.href);
@@ -1025,7 +1555,7 @@ export const initApplicantChat = () => {
         const avatar = document.createElement('span');
         avatar.className = 'applicant-chat__avatar';
         avatar.setAttribute('aria-hidden', 'true');
-        avatar.textContent = application.applicant.initials ?? '';
+        renderAvatar(avatar, application.applicant);
 
         const copy = document.createElement('span');
         copy.className = 'applicant-chat__contact-copy';
@@ -1085,6 +1615,40 @@ export const initApplicantChat = () => {
         getContacts().forEach((contact) => {
             contact.hidden = query !== '' && !contact.dataset.chatSearchText.includes(query);
         });
+    });
+
+    hiringStageForm?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        if (!hiringStageSelect?.value) {
+            return;
+        }
+
+        setHiringStageStatus();
+        hiringStageSelect.disabled = true;
+        if (hiringStageSubmit) {
+            hiringStageSubmit.disabled = true;
+        }
+
+        try {
+            const response = await window.axios.patch(hiringStageForm.action, {
+                status: hiringStageSelect.value,
+            }, {
+                headers: { Accept: 'application/json' },
+            });
+            updateHiringTimeline(response.data?.application_timeline);
+            setHiringStageStatus('Hiring stage updated.');
+        } catch (error) {
+            const message = error.response?.data?.errors?.status?.[0]
+                ?? error.response?.data?.message
+                ?? 'The hiring stage could not be updated. Please try again.';
+            setHiringStageStatus(message, true);
+        } finally {
+            hiringStageSelect.disabled = false;
+            if (hiringStageSubmit) {
+                hiringStageSubmit.disabled = false;
+            }
+        }
     });
 
     chat.addEventListener('click', (event) => {
@@ -1213,7 +1777,13 @@ export const initApplicantChat = () => {
 
     if (conversationId && updatesUrl) {
         syncConversationUpdates();
-        chatUpdatesTimer = window.setInterval(syncConversationUpdates, 1200);
+        // Echo provides the immediate path. Polling is only a recovery path,
+        // so keep it gentle enough that several open users do not overload
+        // the application server and make the UI feel slow.
+        chatUpdatesTimer = window.setInterval(
+            syncConversationUpdates,
+            window.Echo ? 8000 : 4000,
+        );
     }
 
     if (conversationId && window.Echo) {
@@ -1291,9 +1861,7 @@ export const initApplicantChat = () => {
             syncConversationContact(message);
             input.value = '';
             input.style.height = '';
-            if (attachmentInput) {
-                attachmentInput.value = '';
-            }
+            clearAttachmentPreview({ clearInput: true });
             setComposerStatus('Message sent.');
             input.focus();
         } catch (error) {
@@ -1361,12 +1929,13 @@ export const initApplicantChat = () => {
         }
 
         if (attachment.size > 25 * 1024 * 1024) {
-            attachmentInput.value = '';
+            clearAttachmentPreview({ clearInput: true });
             setComposerStatus('Attachments may not be larger than 25 MB.', true);
             return;
         }
 
-        setComposerStatus(`${attachment.name} attached.`);
+        showAttachmentPreview(attachment);
+        setComposerStatus(`${attachment.name} is ready to send.`);
     });
 
     window.addEventListener('chat:inbox-message', (event) => {
@@ -1384,6 +1953,21 @@ export const initApplicantChat = () => {
         createApplicationConversation(event.detail?.application);
     });
 
+    const handleProfileUpdated = (event) => {
+        const userId = String(event.detail?.user_id ?? '');
+        const photoUrl = event.detail?.profile?.photo_url;
+
+        if (!userId || !photoUrl) {
+            return;
+        }
+
+        chat.querySelectorAll(`[data-chat-avatar-user-id="${userId}"]`).forEach((avatar) => {
+            renderAvatar(avatar, { id: userId, photo_url: photoUrl });
+        });
+    };
+
+    window.addEventListener('profile:updated', handleProfileUpdated);
+
     document.addEventListener('visibilitychange', () => {
         if (chat.isConnected && isPageVisible()) {
             markConversationRead();
@@ -1392,6 +1976,19 @@ export const initApplicantChat = () => {
             syncConversationUpdates();
         }
     });
+
+    activeChatCleanup = () => {
+        window.clearInterval(chatPresenceTimer);
+        window.clearInterval(chatUpdatesTimer);
+        window.clearTimeout(typingClearTimer);
+        window.clearTimeout(longPressTimer);
+        clearAttachmentPreview();
+        closeReactionPicker();
+        if (conversationId && window.Echo) {
+            window.Echo.leave(`chat.conversation.${conversationId}`);
+        }
+        window.removeEventListener('profile:updated', handleProfileUpdated);
+    };
 
     markConversationRead();
 };

@@ -1,9 +1,12 @@
 @php
+    use Illuminate\Support\Facades\Storage;
+
     $dashboardUser = auth()->user();
     $isEmployerDashboard = $dashboardUser?->account_type === 'employer';
     $dashboardDisplayName = $isEmployerDashboard ? ($dashboardUser?->company_name ?: $dashboardUser?->name) : ($dashboardUser?->first_name ?: $dashboardUser?->name);
-    $dashboardDisability = $isEmployerDashboard ? 'Employer account' : ($dashboardUser?->disability ?: 'PWD Applicant');
+    $dashboardDisability = $isEmployerDashboard ? 'Employer account' : ($dashboardUser?->disability_display ?: 'PWD Applicant');
     $dashboardInitials = collect(explode(' ', $dashboardDisplayName ?: 'Applicant'))->filter()->take(2)->map(fn ($part) => strtoupper(substr($part, 0, 1)))->implode('');
+    $dashboardProfilePhotoUrl = $dashboardUser?->profile_photo_path ? Storage::disk('public')->url($dashboardUser->profile_photo_path) : null;
     $dashboardHomeRoute = $isEmployerDashboard ? route('employer.dashboard') : route('applicant.dashboard');
     $dashboardProfileRoute = $isEmployerDashboard ? route('employer.profile') : route('applicant.profile');
     $dashboardHomeLabel = $isEmployerDashboard ? 'Employer Hub' : 'Applicant Dashboard';
@@ -108,7 +111,13 @@
 
             <div class="dashboard-profile-menu" data-dashboard-profile-menu>
                 <button type="button" class="dashboard-profile-menu__toggle" data-dashboard-profile-toggle aria-expanded="false" aria-controls="dashboard-profile-options">
-                    <span class="dashboard-profile-menu__avatar" aria-hidden="true">{{ $dashboardInitials ?: 'PA' }}</span>
+                    <span class="dashboard-profile-menu__avatar {{ $dashboardProfilePhotoUrl ? 'has-image' : '' }}" data-dashboard-avatar aria-hidden="true">
+                        @if ($dashboardProfilePhotoUrl)
+                            <img src="{{ $dashboardProfilePhotoUrl }}" alt="" data-dashboard-avatar-image>
+                        @else
+                            {{ $dashboardInitials ?: 'PA' }}
+                        @endif
+                    </span>
                     <span class="dashboard-profile-menu__copy">
                         <strong data-dashboard-user-name>{{ $dashboardDisplayName }}</strong>
                         <small data-dashboard-user-disability>{{ $dashboardDisability }}</small>

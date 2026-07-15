@@ -105,6 +105,43 @@ class AdminController extends Controller
         ]);
     }
 
+    /**
+     * Full-screen roster for people who are currently active on the platform.
+     * Only users that an administrator may contact are included.
+     */
+    public function activeUsers(): View
+    {
+        $this->ensureAdmin();
+
+        return view('admin.active-users', [
+            'onlineUsers' => $this->onlineMessagingUsers()
+                ->orderByDesc('last_seen_at')
+                ->get(),
+        ]);
+    }
+
+    /**
+     * Lightweight refresh endpoint for the header's live online roster.
+     */
+    public function onlineUsers(): JsonResponse
+    {
+        $this->ensureAdmin();
+
+        $onlineQuery = $this->onlineMessagingUsers();
+        $count = (clone $onlineQuery)->count();
+        $users = $onlineQuery
+            ->orderByDesc('last_seen_at')
+            ->limit(6)
+            ->get();
+
+        return response()->json([
+            'count' => $count,
+            'users' => $users
+                ->map(fn (User $user) => $this->onlineUserPayload($user))
+                ->values(),
+        ]);
+    }
+
     public function users(Request $request): View
     {
         $this->ensureAdmin();
@@ -132,7 +169,9 @@ class AdminController extends Controller
     {
         $this->ensureAdmin();
 
-        return view('admin.create-user');
+        return view('admin.create-user', [
+            'disabilityCategories' => config('applicant.disability_categories'),
+        ]);
     }
 
     public function storeUser(Request $request): RedirectResponse
@@ -140,6 +179,7 @@ class AdminController extends Controller
         $this->ensureAdmin();
 
         $accountType = $request->input('account_type');
+        $disabilityCategories = config('applicant.disability_categories', []);
         $rules = [
             'account_type' => ['required', Rule::in(['pwd_applicant', 'employer'])],
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
@@ -150,7 +190,8 @@ class AdminController extends Controller
             $rules += [
                 'first_name' => ['required', 'string', 'max:120'],
                 'last_name' => ['required', 'string', 'max:120'],
-                'disability' => ['required', 'string', 'max:160'],
+                'disability' => ['required', Rule::in(array_keys($disabilityCategories))],
+                'disability_category' => ['required', Rule::in($disabilityCategories[$request->input('disability')] ?? [])],
                 'street_address' => ['required', 'string', 'max:255'],
                 'contact_number' => ['required', 'string', 'max:30'],
                 'birthdate' => ['required', 'date', 'before:today'],
@@ -182,6 +223,7 @@ class AdminController extends Controller
                 'first_name' => $validated['first_name'],
                 'last_name' => $validated['last_name'],
                 'disability' => $validated['disability'],
+                'disability_category' => $validated['disability_category'],
                 'street_address' => $validated['street_address'],
                 'city' => 'Dasmarinas',
                 'contact_number' => $validated['contact_number'],
@@ -405,5 +447,42 @@ class AdminController extends Controller
     {
         // Prevent admin review actions from changing an employer or another admin account.
         abort_unless($user->account_type === 'pwd_applicant', 404);
+    }
+
+    private function onlineMessagingUsers()
+    {
+        return User::query()
+            ->where('last_seen_at', '>=', now()->subMinutes(2))
+            ->where(function ($query) {
+                $query->where(function ($query) {
+                    $query->where('account_type', 'pwd_applicant')
+                        ->where('applicant_review_status', 'approved');
+                })->orWhere(function ($query) {
+                    $query->where('account_type', 'employer')
+                        ->where('employer_document_status', 'valid');
+                });
+            });
+    }
+
+    /** @return array{id:int,name:string,initials:string,role:string,last_seen_at:?string} */
+    private function onlineUserPayload(User $user): array
+    {
+        $name = $user->account_type === 'employer' && filled($user->company_name)
+            ? trim((string) $user->company_name)
+            : trim(implode(' ', array_filter([$user->first_name, $user->last_name])));
+        $name = $name !== '' ? $name : $user->name;
+        $initials = collect(preg_split('/\s+/', $name) ?: [])
+            ->filter()
+            ->take(2)
+            ->map(fn (string $part) => strtoupper(substr($part, 0, 1)))
+            ->implode('');
+
+        return [
+            'id' => $user->id,
+            'name' => $name,
+            'initials' => $initials ?: 'AU',
+            'role' => $user->account_type === 'employer' ? 'Employer' : 'PWD Applicant',
+            'last_seen_at' => $user->last_seen_at?->toIso8601String(),
+        ];
     }
 }

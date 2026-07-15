@@ -11,10 +11,11 @@ import { initLandingPage } from './modules/landing-page';
 import { initAuthRegistration } from './modules/auth-registration';
 import { initAdminDashboard } from './modules/admin-dashboard';
 import { initAdminAccountRealtime } from './modules/admin-account-realtime';
-import { initApplicantChat } from './modules/applicant-chat';
-import { initApplicantProfile } from './modules/applicant-profile';
+import { destroyApplicantChat, initApplicantChat } from './modules/applicant-chat';
+import { destroyApplicantProfile, initApplicantProfile } from './modules/applicant-profile';
 import { initEmployerDashboard } from './modules/employer-dashboard';
-import { initJobMatch } from './modules/job-match';
+import { initEmployerProfile } from './modules/employer-profile';
+import { destroyJobMatch, initJobMatch } from './modules/job-match';
 import { initRealtimeInbox } from './modules/realtime-inbox';
 import { initUserActivity } from './modules/user-activity';
 import { showSweetModal, showSweetToast } from './modules/notifications';
@@ -35,4 +36,21 @@ initUserActivity();
 initApplicantChat();
 initApplicantProfile();
 initEmployerDashboard();
+initEmployerProfile();
 initJobMatch();
+
+// Dashboard routes replace only <main>, so initialize the small controllers
+// that belong to the new screen without re-registering global listeners.
+document.addEventListener('workspace:before-content-replaced', () => {
+    destroyApplicantChat();
+    destroyApplicantProfile();
+    destroyJobMatch();
+});
+document.addEventListener('workspace:content-replaced', () => {
+    initPageMessages({ showSweetToast, showSweetModal });
+    initApplicantChat();
+    initApplicantProfile();
+    initEmployerDashboard();
+    initEmployerProfile();
+    initJobMatch();
+});

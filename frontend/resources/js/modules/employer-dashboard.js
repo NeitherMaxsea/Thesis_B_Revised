@@ -11,6 +11,7 @@ export const initEmployerDashboard = () => {
     const status = dashboard.querySelector('[data-employer-job-status]');
     const jobList = dashboard.querySelector('[data-employer-job-list]');
     const jobCount = dashboard.querySelector('[data-employer-job-count]');
+    const documentRenewalForms = dashboard.querySelectorAll('.employer-document-renewal');
 
     let opener = null;
 
@@ -86,5 +87,42 @@ export const initEmployerDashboard = () => {
             submitButton.disabled = false;
             submitButton.textContent = 'Publish job post';
         }
+    });
+
+    documentRenewalForms.forEach((renewalForm) => {
+        renewalForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            if (!renewalForm.checkValidity()) {
+                renewalForm.reportValidity();
+                return;
+            }
+
+            const button = renewalForm.querySelector('button[type="submit"]');
+            const originalText = button?.textContent || 'Renew';
+            if (button) {
+                button.disabled = true;
+                button.textContent = 'Renewing…';
+            }
+
+            try {
+                const response = await window.axios.post(renewalForm.action, new FormData(renewalForm), {
+                    headers: { Accept: 'application/json' },
+                });
+
+                window.dispatchEvent(new CustomEvent('workspace:navigate', {
+                    detail: { url: window.location.href, replace: true },
+                }));
+            } catch (error) {
+                const message = error.response?.data?.message
+                    ?? Object.values(error.response?.data?.errors ?? {}).flat()[0]
+                    ?? 'Unable to renew the document. Please try again.';
+                setStatus(message, true);
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            }
+        });
     });
 };
