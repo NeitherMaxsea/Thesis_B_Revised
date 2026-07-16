@@ -45,6 +45,7 @@
         data-mute-url="{{ route('messages.mute', $selectedConversation) }}"
         data-reaction-url-template="{{ route('messages.reactions', ['conversation' => $selectedConversation, 'message' => '__message__']) }}"
         data-requirements-acknowledge-url-template="{{ route('messages.requirements.acknowledge', ['conversation' => $selectedConversation, 'message' => '__message__']) }}"
+        data-interview-response-url-template="{{ route('messages.interview.respond', ['conversation' => $selectedConversation, 'message' => '__message__']) }}"
         @if ($canUpdateHiringStage)
             data-hiring-actions-url="{{ route('messages.hiring-actions.store', $selectedConversation) }}"
         @endif
@@ -280,6 +281,37 @@
                                     ->filter(fn ($item) => is_array($item) && filled($item['label'] ?? null) && filled($item['value'] ?? null));
                                 $hiringActionItems = collect($hiringActionCard['items'] ?? [])
                                     ->filter(fn ($item) => is_string($item) && filled($item));
+                                $isInterviewAction = $isHiringActionCard && ($hiringActionCard['action'] ?? null) === 'interview';
+                                $hiringActionEyebrow = $isInterviewAction && ($hiringActionCard['eyebrow'] ?? null) === 'Imbitasyon sa interview'
+                                    ? 'Interview invitation'
+                                    : ($hiringActionCard['eyebrow'] ?? 'Hiring update');
+                                $hiringActionTitle = $isInterviewAction && ($hiringActionCard['title'] ?? null) === 'Iskedyul ng interview'
+                                    ? 'Interview schedule'
+                                    : ($hiringActionCard['title'] ?? 'Hiring update');
+                                $hiringActionIntro = $isInterviewAction && ($hiringActionCard['intro'] ?? null) === 'Na-shortlist ka para sa interview. Pakisuri ang detalye sa ibaba.'
+                                    ? 'You have been shortlisted for an interview. Please review the details below.'
+                                    : ($hiringActionCard['intro'] ?? null);
+                                $hiringActionDetails = $isInterviewAction
+                                    ? $hiringActionDetails->map(function (array $detail) {
+                                        $detail['label'] = [
+                                            'Petsa' => 'Date',
+                                            'Oras' => 'Time',
+                                            'Paraan' => 'Format',
+                                            'Karagdagang detalye' => 'Additional details',
+                                        ][$detail['label']] ?? $detail['label'];
+
+                                        return $detail;
+                                    })
+                                    : $hiringActionDetails;
+                                $interviewResponse = $isHiringActionCard && ($hiringActionCard['action'] ?? null) === 'interview'
+                                    ? ($hiringActionCard['attendance_response'] ?? null)
+                                    : null;
+                                $canRespondToInterview = $isHiringActionCard
+                                    && ($hiringActionCard['action'] ?? null) === 'interview'
+                                    && ! $isMine
+                                    && blank($interviewResponse)
+                                    && $user->account_type === 'pwd_applicant'
+                                    && (int) ($selectedApplication?->applicant_id ?? 0) === (int) $user->id;
                                 $requirementsAcknowledged = filled($requirementsCard['acknowledged_at'] ?? null);
                                 $canAcknowledgeRequirements = $isRequirementsCard
                                     && ! $isMine
@@ -343,7 +375,7 @@
                                             @endif
                                         </section>
                                     @elseif ($isHiringActionCard)
-                                        <section class="applicant-chat__hiring-card applicant-chat__hiring-card--{{ $hiringActionCard['action'] ?? 'notice' }}" aria-label="{{ $hiringActionCard['title'] ?? 'Hiring update' }}">
+                                        <section class="applicant-chat__hiring-card applicant-chat__hiring-card--{{ $hiringActionCard['action'] ?? 'notice' }}" aria-label="{{ $hiringActionTitle }}">
                                             <header>
                                                 <span class="applicant-chat__hiring-card-icon" aria-hidden="true">
                                                     @if (($hiringActionCard['action'] ?? null) === 'documents')
@@ -354,9 +386,9 @@
                                                         <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17h6" /></svg>
                                                     @endif
                                                 </span>
-                                                <span><p>{{ $hiringActionCard['eyebrow'] ?? 'Hiring update' }}</p><h3>{{ $hiringActionCard['title'] ?? 'May bagong update ang employer' }}</h3></span>
+                                                <span><p>{{ $hiringActionEyebrow }}</p><h3>{{ $hiringActionTitle }}</h3></span>
                                             </header>
-                                            @if (filled($hiringActionCard['intro'] ?? null))<p class="applicant-chat__hiring-card-intro">{{ $hiringActionCard['intro'] }}</p>@endif
+                                            @if (filled($hiringActionIntro))<p class="applicant-chat__hiring-card-intro">{{ $hiringActionIntro }}</p>@endif
                                             @if ($hiringActionDetails->isNotEmpty())
                                                 <dl class="applicant-chat__hiring-card-details">
                                                     @foreach ($hiringActionDetails as $detail)<div><dt>{{ $detail['label'] }}</dt><dd>{{ $detail['value'] }}</dd></div>@endforeach
@@ -364,6 +396,16 @@
                                             @endif
                                             @if ($hiringActionItems->isNotEmpty())
                                                 <ul class="applicant-chat__hiring-card-items">@foreach ($hiringActionItems as $item)<li>{{ $item }}</li>@endforeach</ul>
+                                            @endif
+                                            @if ($canRespondToInterview)
+                                                <div class="applicant-chat__interview-response-actions">
+                                                    <button type="button" data-interview-response="confirmed" data-interview-response-url="{{ route('messages.interview.respond', ['conversation' => $selectedConversation, 'message' => $message]) }}">Confirm attendance</button>
+                                                    <button type="button" data-interview-response="change_requested" data-interview-response-url="{{ route('messages.interview.respond', ['conversation' => $selectedConversation, 'message' => $message]) }}">Request schedule change</button>
+                                                </div>
+                                            @elseif ($interviewResponse === 'confirmed')
+                                                <p class="applicant-chat__interview-response-status is-confirmed">Attendance confirmed by the applicant.</p>
+                                            @elseif ($interviewResponse === 'change_requested')
+                                                <p class="applicant-chat__interview-response-status">The applicant requested a schedule change.</p>
                                             @endif
                                         </section>
                                     @elseif (filled($message->body))
@@ -396,9 +438,9 @@
                             <summary aria-label="Hiring actions" title="Hiring actions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18M5.5 5.5l13 13M18.5 5.5l-13 13" /></svg></summary>
                             <div class="applicant-chat__hiring-actions-menu">
                                 <p>Hiring actions</p>
-                                <button type="button" data-hiring-action-open="interview"><b>01</b><span><strong>Mag-schedule ng interview</strong><small>Itakda ang petsa, oras, at paraan</small></span></button>
-                                <button type="button" data-hiring-action-open="assessment"><b>02</b><span><strong>Magpadala ng skills assessment</strong><small>Magbigay ng assessment invitation</small></span></button>
-                                <button type="button" data-hiring-action-open="documents"><b>03</b><span><strong>Humingi ng documents</strong><small>Gumawa ng checklist para sa applicant</small></span></button>
+                                <button type="button" data-hiring-action-open="interview"><b>01</b><span><strong>Schedule an interview</strong><small>Set the date, time, and format</small></span></button>
+                                <button type="button" data-hiring-action-open="assessment"><b>02</b><span><strong>Send a skills assessment</strong><small>Share an assessment invitation</small></span></button>
+                                <button type="button" data-hiring-action-open="documents"><b>03</b><span><strong>Request documents</strong><small>Create a checklist for the applicant</small></span></button>
                             </div>
                         </details>
                     @endif
@@ -419,28 +461,38 @@
                         <form data-hiring-action-form novalidate>
                             @csrf
                             <header>
-                                <div><p>Hiring action</p><h2 id="hiring-action-dialog-title" data-hiring-action-title>Mag-schedule ng interview</h2><span data-hiring-action-description>Ilagay ang detalye bago ipadala sa applicant.</span></div>
-                                <button type="button" data-hiring-action-close aria-label="Isara">×</button>
+                                <div><p>Hiring action</p><h2 id="hiring-action-dialog-title" data-hiring-action-title>Schedule an interview</h2><span data-hiring-action-description>Enter the details before sending them to the applicant.</span></div>
+                                <button type="button" data-hiring-action-close aria-label="Close">×</button>
                             </header>
                             <input type="hidden" name="action" value="interview" data-hiring-action-input>
                             <div class="applicant-chat__hiring-dialog-fields" data-hiring-action-fields="interview">
-                                <label><span>Petsa *</span><input type="date" name="interview_date" required></label>
-                                <label><span>Oras *</span><input type="time" name="interview_time" required></label>
-                                <label><span>Paraan *</span><select name="interview_method" required><option value="Video call">Video call</option><option value="Phone call">Phone call</option><option value="In person">In person</option></select></label>
+                                <label><span>Date *</span><input type="date" name="interview_date" required></label>
+                                <label><span>Time *</span><input type="time" name="interview_time" required></label>
+                                <label><span>Format *</span><select name="interview_method" required><option value="Video call">Video call</option><option value="Phone call">Phone call</option><option value="In person">In person</option></select></label>
                                 <label><span>Meeting link</span><input type="url" name="meeting_link" placeholder="https://..."></label>
-                                <label class="is-wide"><span>Karagdagang detalye</span><textarea name="details" rows="3" maxlength="1500" placeholder="Halimbawa: Ihanda ang portfolio o anumang kailangan sa interview."></textarea></label>
+                                <label class="is-wide"><span>Additional details</span><textarea name="details" rows="3" maxlength="1500" placeholder="Example: Bring your portfolio or any materials needed for the interview."></textarea></label>
                             </div>
                             <div class="applicant-chat__hiring-dialog-fields" data-hiring-action-fields="assessment" hidden>
-                                <label class="is-wide"><span>Pangalan ng assessment *</span><input name="assessment_title" maxlength="160" placeholder="Halimbawa: Basic data-entry assessment" disabled required></label>
+                                <label class="is-wide"><span>Assessment title *</span><input name="assessment_title" maxlength="160" placeholder="Example: Basic data-entry assessment" disabled required></label>
                                 <label class="is-wide"><span>Assessment link</span><input type="url" name="assessment_link" placeholder="https://..." disabled></label>
-                                <label class="is-wide"><span>Panuto *</span><textarea name="assessment_instructions" rows="4" maxlength="1500" placeholder="Ilagay kung paano sasagutan at kailan dapat matapos." disabled required></textarea></label>
+                                <label class="is-wide"><span>Instructions *</span><textarea name="assessment_instructions" rows="4" maxlength="1500" placeholder="Explain how to complete the assessment and its deadline." disabled required></textarea></label>
                             </div>
                             <div class="applicant-chat__hiring-dialog-fields" data-hiring-action-fields="documents" hidden>
-                                <label class="is-wide"><span>Pamagat ng document request *</span><input name="documents_title" maxlength="160" placeholder="Halimbawa: Pre-employment documents" disabled required></label>
-                                <label class="is-wide"><span>Mga dokumento *</span><textarea name="documents" rows="5" maxlength="3000" placeholder="Isang dokumento bawat linya&#10;Valid ID&#10;NBI Clearance" disabled required></textarea></label>
-                                <label class="is-wide"><span>Note para sa applicant</span><textarea name="documents_note" rows="3" maxlength="1500" placeholder="Dagdag na paliwanag o deadline" disabled></textarea></label>
+                                <p class="applicant-chat__document-request-intro is-wide">Select the documents the applicant must prepare and upload.</p>
+                                <div class="applicant-chat__document-request-options is-wide">
+                                    <label class="applicant-chat__document-request-option"><input type="checkbox" name="documents[]" value="Government-issued ID" disabled><span>Government-issued ID</span></label>
+                                    <label class="applicant-chat__document-request-option"><input type="checkbox" name="documents[]" value="Birth Certificate" disabled><span>Birth Certificate</span></label>
+                                    <label class="applicant-chat__document-request-option"><input type="checkbox" name="documents[]" value="PhilHealth ID" disabled><span>PhilHealth ID</span></label>
+                                    <label class="applicant-chat__document-request-option"><input type="checkbox" name="documents[]" value="PWD ID" disabled><span>PWD ID</span></label>
+                                    <label class="applicant-chat__document-request-option"><input type="checkbox" name="documents[]" value="SSS membership record" disabled><span>SSS membership record</span></label>
+                                    <label class="applicant-chat__document-request-option"><input type="checkbox" name="documents[]" value="Pag-IBIG membership record" disabled><span>Pag-IBIG membership record</span></label>
+                                    <label class="applicant-chat__document-request-option"><input type="checkbox" name="documents[]" value="Tax Identification Number" disabled><span>Tax Identification Number</span></label>
+                                    <label class="applicant-chat__document-request-option"><input type="checkbox" name="documents[]" value="NBI clearance" disabled><span>NBI clearance</span></label>
+                                </div>
+                                <label class="applicant-chat__document-request-custom is-wide"><span>Custom document name</span><div><input type="text" maxlength="160" placeholder="e.g. Professional license" data-document-request-custom-input disabled><button type="button" data-document-request-add disabled>Add</button></div></label>
+                                <div class="applicant-chat__document-request-custom-list is-wide" data-document-request-custom-list></div>
                             </div>
-                            <footer><p data-hiring-action-status role="status"></p><span><button type="button" data-hiring-action-close>Cancel</button><button type="submit" data-hiring-action-submit>Ipadala sa applicant</button></span></footer>
+                            <footer><p data-hiring-action-status role="status"></p><span><button type="button" data-hiring-action-close>Cancel</button><button type="submit" data-hiring-action-submit>Send to applicant</button></span></footer>
                         </form>
                     </dialog>
                 @endif

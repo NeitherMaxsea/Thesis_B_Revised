@@ -33,6 +33,7 @@ export const initApplicantChat = () => {
     const muteUrl = chat.dataset.muteUrl;
     const reactionUrlTemplate = chat.dataset.reactionUrlTemplate;
     const requirementsAcknowledgeUrlTemplate = chat.dataset.requirementsAcknowledgeUrlTemplate;
+    const interviewResponseUrlTemplate = chat.dataset.interviewResponseUrlTemplate;
     const hiringActionsUrl = chat.dataset.hiringActionsUrl;
     const messagesIndexUrl = chat.dataset.messagesIndexUrl;
     const messages = chat.querySelector('[data-chat-messages]');
@@ -130,6 +131,9 @@ export const initApplicantChat = () => {
     const hiringActionDescription = chat.querySelector('[data-hiring-action-description]');
     const hiringActionStatus = chat.querySelector('[data-hiring-action-status]');
     const hiringActionSubmit = chat.querySelector('[data-hiring-action-submit]');
+    const documentRequestCustomInput = chat.querySelector('[data-document-request-custom-input]');
+    const documentRequestAdd = chat.querySelector('[data-document-request-add]');
+    const documentRequestCustomList = chat.querySelector('[data-document-request-custom-list]');
     const reactionEmojis = ['👍', '❤️', '😊'];
 
     let readInFlight = false;
@@ -257,16 +261,16 @@ export const initApplicantChat = () => {
 
     const hiringActionCopy = {
         interview: {
-            title: 'Mag-schedule ng interview',
-            description: 'Ilagay ang petsa, oras, at paraan bago ipadala sa applicant.',
+            title: 'Schedule an interview',
+            description: 'Enter the date, time, and format before sending it to the applicant.',
         },
         assessment: {
-            title: 'Magpadala ng skills assessment',
-            description: 'Magbigay ng assessment invitation at malinaw na panuto.',
+            title: 'Send a skills assessment',
+            description: 'Share an assessment invitation and clear instructions.',
         },
         documents: {
-            title: 'Humingi ng documents',
-            description: 'Gumawa ng document checklist na matatanggap ng applicant.',
+            title: 'Request pre-employment documents',
+            description: 'Select the documents the applicant must prepare and upload.',
         },
     };
 
@@ -287,14 +291,63 @@ export const initApplicantChat = () => {
         hiringActionInput.value = action;
         hiringActionTitle.textContent = hiringActionCopy[action].title;
         hiringActionDescription.textContent = hiringActionCopy[action].description;
+        hiringActionDialog?.classList.toggle('is-document-request', action === 'documents');
         hiringActionForm.querySelectorAll('[data-hiring-action-fields]').forEach((fields) => {
             const isActive = fields.dataset.hiringActionFields === action;
             fields.hidden = !isActive;
-            fields.querySelectorAll('input, textarea, select').forEach((field) => {
+            fields.querySelectorAll('input, textarea, select, button').forEach((field) => {
                 field.disabled = !isActive;
             });
         });
     };
+
+    const addCustomDocumentRequest = () => {
+        const name = documentRequestCustomInput?.value.trim() ?? '';
+
+        if (!name || !documentRequestCustomList) {
+            setHiringActionStatus('Enter a document name before adding it.', true);
+            documentRequestCustomInput?.focus();
+            return;
+        }
+
+        const normalizedName = name.toLocaleLowerCase();
+        const alreadyAdded = [...hiringActionForm.querySelectorAll('input[name="documents[]"]')]
+            .some((input) => input.value.trim().toLocaleLowerCase() === normalizedName);
+
+        if (alreadyAdded) {
+            setHiringActionStatus('That document is already in the checklist.', true);
+            documentRequestCustomInput?.focus();
+            return;
+        }
+
+        const option = document.createElement('label');
+        option.className = 'applicant-chat__document-request-option is-custom';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.name = 'documents[]';
+        checkbox.value = name;
+        checkbox.checked = true;
+        const text = document.createElement('span');
+        text.textContent = name;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.setAttribute('aria-label', `Remove ${name}`);
+        remove.textContent = '×';
+        remove.addEventListener('click', () => option.remove());
+        option.append(checkbox, text, remove);
+        documentRequestCustomList.append(option);
+        documentRequestCustomInput.value = '';
+        setHiringActionStatus();
+        documentRequestCustomInput.focus();
+    };
+
+    documentRequestAdd?.addEventListener('click', addCustomDocumentRequest);
+    documentRequestCustomInput?.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            addCustomDocumentRequest();
+        }
+    });
 
     chat.querySelectorAll('[data-hiring-action-open]').forEach((button) => {
         button.addEventListener('click', () => {
@@ -328,10 +381,10 @@ export const initApplicantChat = () => {
         }
 
         setHiringActionStatus();
-        const originalText = hiringActionSubmit?.textContent ?? 'Ipadala sa applicant';
+        const originalText = hiringActionSubmit?.textContent ?? 'Send to applicant';
         if (hiringActionSubmit) {
             hiringActionSubmit.disabled = true;
-            hiringActionSubmit.textContent = 'Ipinapadala…';
+            hiringActionSubmit.textContent = 'Sending…';
         }
 
         try {
@@ -341,15 +394,16 @@ export const initApplicantChat = () => {
             createMessage(response.data.message);
             syncConversationContact(response.data.message);
             updateHiringTimeline(response.data.application_timeline);
-            setComposerStatus('Naipadala ang hiring card sa applicant.');
+            setComposerStatus('The hiring action was sent to the applicant.');
             hiringActionDialog?.close();
             hiringActionForm.reset();
+            documentRequestCustomList?.replaceChildren();
             selectHiringAction('interview');
         } catch (error) {
             const errors = error.response?.data?.errors;
             const message = errors
                 ? Object.values(errors).flat()[0]
-                : (error.response?.data?.message ?? 'Hindi naipadala ang hiring card. Subukan muli.');
+                : (error.response?.data?.message ?? 'The hiring action could not be sent. Please try again.');
             setHiringActionStatus(message, true);
         } finally {
             if (hiringActionSubmit) {
@@ -809,6 +863,11 @@ export const initApplicantChat = () => {
         encodeURIComponent(String(messageId)),
     );
 
+    const interviewResponseUrl = (messageId) => interviewResponseUrlTemplate?.replace(
+        '__message__',
+        encodeURIComponent(String(messageId)),
+    );
+
     const messagePreview = (message) => {
         if (message?.message_type === 'requirements_card') {
             return 'May ipinadalang requirement card';
@@ -966,7 +1025,23 @@ export const initApplicantChat = () => {
             : {};
         const card = document.createElement('section');
         card.className = `applicant-chat__hiring-card applicant-chat__hiring-card--${metadata.action || 'notice'}`;
-        card.setAttribute('aria-label', metadata.title || 'Hiring update');
+        const isInterview = metadata.action === 'interview';
+        const interviewLabels = {
+            Petsa: 'Date',
+            Oras: 'Time',
+            Paraan: 'Format',
+            'Karagdagang detalye': 'Additional details',
+        };
+        const eyebrowText = isInterview && metadata.eyebrow === 'Imbitasyon sa interview'
+            ? 'Interview invitation'
+            : (metadata.eyebrow || 'Hiring update');
+        const titleText = isInterview && metadata.title === 'Iskedyul ng interview'
+            ? 'Interview schedule'
+            : (metadata.title || 'Hiring update');
+        const introText = isInterview && metadata.intro === 'Na-shortlist ka para sa interview. Pakisuri ang detalye sa ibaba.'
+            ? 'You have been shortlisted for an interview. Please review the details below.'
+            : metadata.intro;
+        card.setAttribute('aria-label', titleText);
 
         const header = document.createElement('header');
         const icon = document.createElement('span');
@@ -979,17 +1054,17 @@ export const initApplicantChat = () => {
                 : '<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17h6"></path></svg>');
         const copy = document.createElement('span');
         const eyebrow = document.createElement('p');
-        eyebrow.textContent = metadata.eyebrow || 'Hiring update';
+        eyebrow.textContent = eyebrowText;
         const title = document.createElement('h3');
-        title.textContent = metadata.title || 'May bagong update ang employer';
+        title.textContent = titleText;
         copy.append(eyebrow, title);
         header.append(icon, copy);
         card.append(header);
 
-        if (metadata.intro) {
+        if (introText) {
             const intro = document.createElement('p');
             intro.className = 'applicant-chat__hiring-card-intro';
-            intro.textContent = metadata.intro;
+            intro.textContent = introText;
             card.append(intro);
         }
 
@@ -1003,7 +1078,7 @@ export const initApplicantChat = () => {
                 }
                 const row = document.createElement('div');
                 const label = document.createElement('dt');
-                label.textContent = detail.label;
+                label.textContent = isInterview ? (interviewLabels[detail.label] || detail.label) : detail.label;
                 const value = document.createElement('dd');
                 value.textContent = detail.value;
                 row.append(label, value);
@@ -1025,6 +1100,35 @@ export const initApplicantChat = () => {
             });
             if (list.childElementCount > 0) {
                 card.append(list);
+            }
+        }
+
+        if (metadata.action === 'interview') {
+            const attendanceResponse = metadata.attendance_response;
+            const isMine = Number(message.sender?.id) === currentUserId;
+
+            if (attendanceResponse === 'confirmed' || attendanceResponse === 'change_requested') {
+                const status = document.createElement('p');
+                status.className = `applicant-chat__interview-response-status${attendanceResponse === 'confirmed' ? ' is-confirmed' : ''}`;
+                status.textContent = attendanceResponse === 'confirmed'
+                    ? 'Attendance confirmed by the applicant.'
+                    : 'The applicant requested a schedule change.';
+                card.append(status);
+            } else if (currentAccountType === 'pwd_applicant' && !isMine) {
+                const actions = document.createElement('div');
+                actions.className = 'applicant-chat__interview-response-actions';
+                const confirm = document.createElement('button');
+                confirm.type = 'button';
+                confirm.dataset.interviewResponse = 'confirmed';
+                confirm.dataset.interviewResponseUrl = interviewResponseUrl(message.id) || '';
+                confirm.textContent = 'Confirm attendance';
+                const change = document.createElement('button');
+                change.type = 'button';
+                change.dataset.interviewResponse = 'change_requested';
+                change.dataset.interviewResponseUrl = interviewResponseUrl(message.id) || '';
+                change.textContent = 'Request schedule change';
+                actions.append(confirm, change);
+                card.append(actions);
             }
         }
 
@@ -1124,6 +1228,17 @@ export const initApplicantChat = () => {
         }
     };
 
+    const replaceHiringActionCard = (message) => {
+        const card = createHiringActionCard(message);
+        const currentCard = messages?.querySelector(
+            `[data-message-id="${Number(message?.id)}"] .applicant-chat__hiring-card`,
+        );
+
+        if (card && currentCard) {
+            currentCard.replaceWith(card);
+        }
+    };
+
     messages?.addEventListener('click', async (event) => {
         const button = event.target.closest('[data-requirements-acknowledge]');
 
@@ -1163,6 +1278,50 @@ export const initApplicantChat = () => {
                 ?? 'Hindi maipadala ang kumpirmasyon. Subukan muli.';
             setComposerStatus(message, true);
             button.disabled = false;
+            button.textContent = originalText;
+        }
+    });
+
+    messages?.addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-interview-response]');
+
+        if (!button || button.disabled) {
+            return;
+        }
+
+        const url = button.dataset.interviewResponseUrl;
+        const responseChoice = button.dataset.interviewResponse;
+
+        if (!url || !['confirmed', 'change_requested'].includes(responseChoice)) {
+            setComposerStatus('The interview response could not be sent. Please try again.', true);
+            return;
+        }
+
+        const actions = button.closest('.applicant-chat__interview-response-actions');
+        const buttons = actions?.querySelectorAll('button') ?? [];
+        buttons.forEach((actionButton) => { actionButton.disabled = true; });
+        const originalText = button.textContent;
+        button.textContent = 'Sending…';
+
+        try {
+            const response = await window.axios.post(url, { response: responseChoice }, {
+                headers: { Accept: 'application/json' },
+            });
+            replaceHiringActionCard(response.data.interview_card);
+
+            if (response.data.reply) {
+                createMessage(response.data.reply);
+                syncConversationContact(response.data.reply);
+            }
+
+            setComposerStatus(responseChoice === 'confirmed'
+                ? 'The employer has been notified that you will attend.'
+                : 'The employer has been notified of your schedule-change request.');
+        } catch (error) {
+            const message = error.response?.data?.message
+                ?? 'The interview response could not be sent. Please try again.';
+            setComposerStatus(message, true);
+            buttons.forEach((actionButton) => { actionButton.disabled = false; });
             button.textContent = originalText;
         }
     });

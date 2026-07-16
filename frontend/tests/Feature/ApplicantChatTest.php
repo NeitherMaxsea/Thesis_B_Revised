@@ -270,7 +270,7 @@ class ApplicantChatTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('message.message_type', Message::TYPE_HIRING_ACTION)
             ->assertJsonPath('message.metadata.action', 'interview')
-            ->assertJsonPath('message.metadata.title', 'Iskedyul ng interview')
+            ->assertJsonPath('message.metadata.title', 'Interview schedule')
             ->assertJsonPath('application_timeline.status', 'interview_schedule');
 
         $this->assertDatabaseHas('messages', [
@@ -308,6 +308,122 @@ class ApplicantChatTest extends TestCase
             ->getJson(route('messages.presence', $conversation))
             ->assertOk()
             ->assertJsonPath('last_seen_at', $admin->fresh()->last_seen_at?->toIso8601String());
+    }
+
+    public function test_applicant_can_confirm_or_request_a_change_to_an_interview_schedule(): void
+    {
+        config(['broadcasting.default' => 'null']);
+
+        $employer = User::factory()->create(['account_type' => 'employer']);
+        $applicant = User::factory()->create([
+            'account_type' => 'pwd_applicant',
+            'applicant_review_status' => 'approved',
+        ]);
+        $job = Job::query()->create([
+            'user_id' => $employer->id,
+            'title' => 'Data Entry Associate',
+            'location' => 'Dasmarinas, Cavite',
+            'employment_type' => 'full_time',
+            'vacancies' => 1,
+            'description' => 'Maintain accessible records.',
+            'status' => 'published',
+        ]);
+        $application = JobApplication::query()->create([
+            'job_id' => $job->id,
+            'applicant_id' => $applicant->id,
+            'status' => 'application_review',
+        ]);
+        $conversation = app(ChatService::class)->openApplicationConversation($application);
+
+        $this->actingAs($employer)
+            ->postJson(route('messages.hiring-actions.store', $conversation), [
+                'action' => 'interview',
+                'interview_date' => '2026-08-14',
+                'interview_time' => '14:00',
+                'interview_method' => 'Video call',
+            ])
+            ->assertCreated();
+
+        $interview = Message::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('message_type', Message::TYPE_HIRING_ACTION)
+            ->firstOrFail();
+
+        $this->actingAs($applicant)
+            ->postJson(route('messages.interview.respond', [
+                'conversation' => $conversation,
+                'message' => $interview,
+            ]), ['response' => 'change_requested'])
+            ->assertOk()
+            ->assertJsonPath('interview_card.metadata.attendance_response', 'change_requested')
+            ->assertJsonPath('reply.body', 'I would like to request a change to the interview schedule.');
+
+        $this->assertSame('change_requested', $interview->fresh()->metadata['attendance_response']);
+        $this->assertDatabaseHas('messages', [
+            'conversation_id' => $conversation->id,
+            'sender_id' => $applicant->id,
+            'body' => 'I would like to request a change to the interview schedule.',
+            'message_type' => Message::TYPE_TEXT,
+        ]);
+
+        $this->actingAs($applicant)
+            ->postJson(route('messages.interview.respond', [
+                'conversation' => $conversation,
+                'message' => $interview,
+            ]), ['response' => 'confirmed'])
+            ->assertUnprocessable();
+    }
+
+    public function test_employer_can_send_selected_pre_employment_documents(): void
+    {
+        config(['broadcasting.default' => 'null']);
+
+        $employer = User::factory()->create(['account_type' => 'employer']);
+        $applicant = User::factory()->create([
+            'account_type' => 'pwd_applicant',
+            'applicant_review_status' => 'approved',
+        ]);
+        $job = Job::query()->create([
+            'user_id' => $employer->id,
+            'title' => 'Office Assistant',
+            'location' => 'Dasmarinas, Cavite',
+            'employment_type' => 'full_time',
+            'vacancies' => 1,
+            'description' => 'Provide office support.',
+            'status' => 'published',
+        ]);
+        $application = JobApplication::query()->create([
+            'job_id' => $job->id,
+            'applicant_id' => $applicant->id,
+            'status' => 'application_review',
+        ]);
+        $conversation = app(ChatService::class)->openApplicationConversation($application);
+
+        $this
+            ->actingAs($employer)
+            ->postJson(route('messages.hiring-actions.store', $conversation), [
+                'action' => 'documents',
+                'documents' => [
+                    'Government-issued ID',
+                    'Birth Certificate',
+                    'PhilHealth ID',
+                    'PWD ID',
+                    'Professional license',
+                ],
+            ])
+            ->assertCreated()
+            ->assertJsonPath('message.message_type', Message::TYPE_HIRING_ACTION)
+            ->assertJsonPath('message.metadata.action', 'documents')
+            ->assertJsonPath('message.metadata.title', 'Pre-employment documents')
+            ->assertJsonPath('message.metadata.items.0', 'Government-issued ID')
+            ->assertJsonPath('message.metadata.items.3', 'PWD ID')
+            ->assertJsonPath('message.metadata.items.4', 'Professional license')
+            ->assertJsonPath('application_timeline.status', 'pre_employment_requirements');
+
+        $this->assertDatabaseHas('job_applications', [
+            'id' => $application->id,
+            'status' => 'pre_employment_requirements',
+        ]);
     }
 
     public function test_other_applicant_cannot_open_or_send_in_someone_elses_conversation(): void

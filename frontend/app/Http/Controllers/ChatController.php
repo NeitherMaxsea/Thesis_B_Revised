@@ -208,18 +208,18 @@ class ChatController extends Controller
             $date = Carbon::parse($data['interview_date'])->format('M j, Y');
             $metadata = [
                 'action' => 'interview',
-                'eyebrow' => 'Imbitasyon sa interview',
-                'title' => 'Iskedyul ng interview',
-                'intro' => 'Na-shortlist ka para sa interview. Pakisuri ang detalye sa ibaba.',
+                'eyebrow' => 'Interview invitation',
+                'title' => 'Interview schedule',
+                'intro' => 'You have been shortlisted for an interview. Please review the details below.',
                 'details' => array_values(array_filter([
-                    ['label' => 'Petsa', 'value' => $date],
-                    ['label' => 'Oras', 'value' => Carbon::createFromFormat('H:i', $data['interview_time'])->format('g:i A')],
-                    ['label' => 'Paraan', 'value' => $data['interview_method']],
+                    ['label' => 'Date', 'value' => $date],
+                    ['label' => 'Time', 'value' => Carbon::createFromFormat('H:i', $data['interview_time'])->format('g:i A')],
+                    ['label' => 'Format', 'value' => $data['interview_method']],
                     ['label' => 'Meeting link', 'value' => $data['meeting_link'] ?? null],
-                    ['label' => 'Karagdagang detalye', 'value' => $data['details'] ?? null],
+                    ['label' => 'Additional details', 'value' => $data['details'] ?? null],
                 ], fn (array $item) => filled($item['value']))),
             ];
-            $body = "May interview invitation para sa iyo sa {$date}.";
+            $body = "You have an interview invitation for {$date}.";
             $targetStage = 'interview_schedule';
         } elseif ($action === 'assessment') {
             $data = $request->validate([
@@ -240,25 +240,25 @@ class ChatController extends Controller
             $body = "May skills assessment para sa iyo: {$data['assessment_title']}.";
         } else {
             $data = $request->validate([
-                'documents_title' => ['required', 'string', 'max:160'],
-                'documents' => ['required', 'string', 'max:3000'],
-                'documents_note' => ['nullable', 'string', 'max:1500'],
+                'documents' => ['required', 'array', 'min:1', 'max:12'],
+                'documents.*' => ['required', 'string', 'max:160'],
             ]);
-            $items = collect(preg_split('/\r\n|\r|\n/', trim($data['documents'])) ?: [])
-                ->map(fn (string $item) => trim((string) preg_replace('/^\s*(?:[-*•]|\d+[.)])\s*/u', '', $item)))
+            $items = collect($data['documents'])
+                ->map(fn (string $item) => trim($item))
                 ->filter()
+                ->unique(fn (string $item) => mb_strtolower($item))
                 ->take(12)
                 ->values()
                 ->all();
             abort_if($items === [], 422, 'Maglagay ng kahit isang dokumento.');
             $metadata = [
                 'action' => 'documents',
-                'eyebrow' => 'Mga dokumentong kailangan',
-                'title' => $data['documents_title'],
-                'intro' => $data['documents_note'] ?: 'Pakihanda at isumite ang mga sumusunod na dokumento.',
+                'eyebrow' => 'Pre-employment documents',
+                'title' => 'Pre-employment documents',
+                'intro' => 'Please prepare and upload the selected documents.',
                 'items' => $items,
             ];
-            $body = "May hinihinging mga dokumento ang employer: {$data['documents_title']}.";
+            $body = 'May hinihinging pre-employment documents ang employer.';
             $targetStage = 'pre_employment_requirements';
         }
 
@@ -362,6 +362,76 @@ class ChatController extends Controller
             'requirements_card' => $this->chatService->messagePayload($requirementsCard),
             'reply' => $reply instanceof Message ? $this->chatService->messagePayload($reply) : null,
             'application_timeline' => $timeline,
+        ]);
+    }
+
+    /**
+     * Lets the applicant make one clear decision about an employer's
+     * interview invitation: attend as scheduled or request a new schedule.
+     */
+    public function respondToInterview(Request $request, string $conversation, string $message): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $conversation = Conversation::query()
+            ->forParticipant($user->id)
+            ->with('jobApplication')
+            ->findOrFail($conversation);
+        $application = $conversation->jobApplication;
+
+        abort_unless(
+            $user->account_type === 'pwd_applicant'
+                && $application instanceof JobApplication
+                && (int) $application->applicant_id === (int) $user->id,
+            403
+        );
+
+        $response = $request->validate([
+            'response' => ['required', 'string', Rule::in(['confirmed', 'change_requested'])],
+        ])['response'];
+
+        [$interviewCard, $reply] = DB::transaction(function () use ($conversation, $message, $user, $response) {
+            $interviewCard = Message::query()
+                ->where('conversation_id', $conversation->id)
+                ->lockForUpdate()
+                ->findOrFail($message);
+            $metadata = $interviewCard->metadata ?? [];
+
+            abort_unless(
+                $interviewCard->message_type === Message::TYPE_HIRING_ACTION
+                    && ($metadata['action'] ?? null) === 'interview'
+                    && (int) $interviewCard->sender_id !== (int) $user->id,
+                422,
+                'This interview invitation cannot be answered.'
+            );
+            abort_if(
+                filled($metadata['attendance_response'] ?? null),
+                422,
+                'You have already responded to this interview invitation.'
+            );
+
+            $metadata['attendance_response'] = $response;
+            $metadata['attendance_responded_at'] = now()->toIso8601String();
+            $metadata['attendance_responded_by'] = $user->id;
+            $interviewCard->update(['metadata' => $metadata]);
+            $interviewCard->refresh();
+
+            $reply = $this->chatService->send(
+                $user,
+                $conversation,
+                $response === 'confirmed'
+                    ? 'I confirm that I will attend the interview as scheduled.'
+                    : 'I would like to request a change to the interview schedule.',
+            );
+
+            return [$interviewCard, $reply];
+        });
+
+        $this->realtime->broadcast(new MessageSent($reply));
+
+        return response()->json([
+            'interview_card' => $this->chatService->messagePayload($interviewCard),
+            'reply' => $this->chatService->messagePayload($reply),
         ]);
     }
 

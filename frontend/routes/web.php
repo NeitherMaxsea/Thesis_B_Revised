@@ -7,6 +7,7 @@ use App\Http\Controllers\ChatController;
 use App\Http\Controllers\EmployerController;
 use App\Http\Controllers\JobApplicationController;
 use App\Http\Controllers\JobMatchController;
+use App\Models\Job;
 use App\Models\User;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Http\Request;
@@ -24,7 +25,26 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::view('/', 'main')->name('home');
+Route::get('/', function (Request $request) {
+    $jobs = Job::query()
+        ->with('employer:id,name,company_name,profile_photo_path')
+        ->where('status', 'published')
+        ->whereHas('employer', fn ($query) => $query
+            ->where('account_type', 'employer')
+            ->where('employer_document_status', 'valid'))
+        ->latest()
+        ->get();
+
+    $selectedJob = $request->filled('job')
+        ? $jobs->firstWhere('id', $request->integer('job'))
+        : $jobs->first();
+
+    return view('main', [
+        'jobs' => $jobs,
+        'locations' => $jobs->pluck('location')->filter()->unique()->sort()->values(),
+        'selectedJob' => $selectedJob ?: $jobs->first(),
+    ]);
+})->name('home');
 
 Route::redirect('/home', '/')->name('legacy.home');
 Route::redirect('/jobs', '/#jobs')->name('jobs');
@@ -231,6 +251,10 @@ Route::post('/messages/{conversation}/hiring-actions', [ChatController::class, '
 Route::post('/messages/{conversation}/messages/{message}/requirements/acknowledge', [ChatController::class, 'acknowledgeRequirements'])
     ->middleware(['auth', 'verified'])
     ->name('messages.requirements.acknowledge');
+
+Route::post('/messages/{conversation}/messages/{message}/interview/respond', [ChatController::class, 'respondToInterview'])
+    ->middleware(['auth', 'verified'])
+    ->name('messages.interview.respond');
 
 Route::patch('/messages/{conversation}/read', [ChatController::class, 'markRead'])
     ->middleware(['auth', 'verified'])
